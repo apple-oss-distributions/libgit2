@@ -577,6 +577,7 @@
 			developmentRegion = English;
 			hasScannedForEncodings = 0;
 			knownRegions = (
+				English,
 				en,
 			);
 			mainGroup = B70C57C0187E3E450077112E;
@@ -745,16 +746,102 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
+		91BB7D5722C2875900B2509D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
+				COPY_PHASE_STRIP = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				GCC_C_LANGUAGE_STANDARD = gnu99;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = "DEBUG=1";
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				INSTALL_PATH = "$(DEVELOPER_INSTALL_DIR)/usr/lib";
+				MACOSX_DEPLOYMENT_TARGET = 10.9;
+				SDKROOT = macosx.internal;
+			};
+			name = Debug;
+		};
+		91BB7D5822C2875900B2509D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				DYLIB_COMPATIBILITY_VERSION = 26.0.0;
+				DYLIB_CURRENT_VERSION = 0.26.0;
+				EXECUTABLE_PREFIX = lib;
+				EXECUTABLE_SUFFIX = .dylib;
+				GCC_ENABLE_PASCAL_STRINGS = NO;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					git2_EXPORTS,
+					GIT_COMMON_CRYPTO,
+					GIT_CURL,
+					GIT_HTTPS,
+					GIT_SSH,
+					GIT_SSH_MEMORY_CREDENTIALS,
+					GIT_SECURE_TRANSPORT,
+					GIT_GSSAPI,
+					"'_FILE_OFFSET_BITS=64'",
+					GIT_ARCH_64,
+					GIT_USE_ICONV,
+					GIT_THREADS,
+					HAVE_REGCOMP_L,
+					HAVE_QSORT_R,
+					GIT_USE_NSEC,
+					GIT_USE_STAT_MTIMESPEC,
+					GIT_SHA1_COMMON_CRYPTO,
+					LIBGIT2_NO_FEATURES_H,
+					"DEBUG=1",
+				);
+				HEADER_SEARCH_PATHS = (
+					"$(PROJECT_DIR)/libgit2/src",
+					"$(PROJECT_DIR)/libgit2/include",
+					"$(PROJECT_DIR)/libgit2/deps/http-parser",
+					"$(DEVELOPER_DIR)/usr/local/include/ssh2-1",
+				);
+				LD_DYLIB_INSTALL_NAME = "@rpath/$(EXECUTABLE_PATH)";
+				LIBRARY_SEARCH_PATHS = "";
+				LIBRARY_STYLE = DYNAMIC;
+				OTHER_CFLAGS = (
+					"-D_GNU_SOURCE",
+					"-Wall",
+					"-Wextra",
+					"-Wno-missing-field-initializers",
+					"-Wstrict-aliasing=2",
+					"-Wstrict-prototypes",
+					"-fvisibility=hidden",
+					"-fPIC",
+					"-Wno-deprecated-declarations",
+					"-DNDEBUG",
+					"-fPIC",
+				);
+				OTHER_LDFLAGS = (
+					"-dynamiclib",
+					"-Wl,-headerpad_max_install_names",
+					"$(DEVELOPER_DIR)/usr/lib/libssh2.dylib",
+				);
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PUBLIC_HEADERS_FOLDER_PATH = "$(DEVELOPER_INSTALL_DIR)/usr/local/include/$(TARGET_NAME)-1";
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = (
+					"-Wmost",
+					"-Wno-four-char-constants",
+					"-Wno-unknown-pragmas",
+				);
+			};
+			name = Debug;
+		};
 		B70C57CC187E3E450077112E /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = "$(ARCHS_STANDARD_32_64_BIT)";
+				ARCHS = "$(ARCHS_STANDARD)";
 				COPY_PHASE_STRIP = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				GCC_C_LANGUAGE_STANDARD = gnu99;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				INSTALL_PATH = "$(DEVELOPER_DIR)/usr/lib";
+				INSTALL_PATH = "$(DEVELOPER_INSTALL_DIR)/usr/lib";
 				MACOSX_DEPLOYMENT_TARGET = 10.9;
 				SDKROOT = macosx.internal;
 			};
@@ -817,7 +904,7 @@
 				);
 				OTHER_REZFLAGS = "";
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				PUBLIC_HEADERS_FOLDER_PATH = "$(DEVELOPER_DIR)/usr/local/include/$(TARGET_NAME)-1";
+				PUBLIC_HEADERS_FOLDER_PATH = "$(DEVELOPER_INSTALL_DIR)/usr/local/include/$(TARGET_NAME)-1";
 				SECTORDER_FLAGS = "";
 				USE_HEADERMAP = NO;
 				WARNING_CFLAGS = (
@@ -835,6 +922,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				B70C57CC187E3E450077112E /* Release */,
+				91BB7D5722C2875900B2509D /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -843,6 +931,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				B70C57CF187E3E450077112E /* Release */,
+				91BB7D5822C2875900B2509D /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

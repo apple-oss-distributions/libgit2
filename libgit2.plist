@@ -6,14 +6,12 @@
 	<string>libgit2</string>
 	<key>OpenSourceVersion</key>
 	<string>0.27.7</string>
-	<key>OpenSourceWebsiteURL</key>
-	<string>http://libgit2.github.com</string>
-	<key>OpenSourceURL</key>
-	<string>https://github.com/libgit2/libgit2/archive/v0.27.7.tar.gz</string>
+	<key>OpenSourceSCM</key>
+	<string>https://github.com/libgit2/libgit2.git</string>
 	<key>OpenSourceSHA1</key>
-	<string>1898564266b4672ac3a1e98e9ce5a57bd1cd48c0</string>
+	<string>f23dc5b29f1394928a940d7ec447f4bfd53dad1f</string>
 	<key>OpenSourceImportDate</key>
-	<string>2018-11-15</string>
+	<string>2018-02-27</string>
 	<key>OpenSourceLicense</key>
 	<string>GPL</string>
 </dict>
