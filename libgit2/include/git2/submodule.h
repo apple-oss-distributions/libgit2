@@ -115,16 +115,15 @@ typedef enum {
  * @param payload value you passed to the foreach function as payload
  * @return 0 on success or error code
  */
-typedef int (*git_submodule_cb)(
+typedef int GIT_CALLBACK(git_submodule_cb)(
 	git_submodule *sm, const char *name, void *payload);
 
 /**
  * Submodule update options structure
  *
- * Use the GIT_SUBMODULE_UPDATE_OPTIONS_INIT to get the default settings,
- * like this:
+ * Initialize with `GIT_SUBMODULE_UPDATE_OPTIONS_INIT`. Alternatively, you can
+ * use `git_submodule_update_options_init`.
  *
- * git_submodule_update_options opts = GIT_SUBMODULE_UPDATE_OPTIONS_INIT;
  */
 typedef struct git_submodule_update_options {
 	unsigned int version;
@@ -134,7 +133,7 @@ typedef struct git_submodule_update_options {
 	 * checkout, set the `checkout_strategy` to
 	 * `GIT_CHECKOUT_NONE`. Generally you will want the use
 	 * GIT_CHECKOUT_SAFE to update files in the working
-	 * directory. 
+	 * directory.
 	 */
 	git_checkout_options checkout_opts;
 
@@ -160,14 +159,16 @@ typedef struct git_submodule_update_options {
 	GIT_FETCH_OPTIONS_INIT, 1 }
 
 /**
- * Initializes a `git_submodule_update_options` with default values.
- * Equivalent to creating an instance with GIT_SUBMODULE_UPDATE_OPTIONS_INIT.
+ * Initialize git_submodule_update_options structure
  *
- * @param opts The `git_submodule_update_options` instance to initialize.
- * @param version Version of struct; pass `GIT_SUBMODULE_UPDATE_OPTIONS_VERSION`
+ * Initializes a `git_submodule_update_options` with default values. Equivalent to
+ * creating an instance with `GIT_SUBMODULE_UPDATE_OPTIONS_INIT`.
+ *
+ * @param opts The `git_submodule_update_options` struct to initialize.
+ * @param version The struct version; pass `GIT_SUBMODULE_UPDATE_OPTIONS_VERSION`.
  * @return Zero on success; -1 on failure.
  */
-GIT_EXTERN(int) git_submodule_update_init_options(
+GIT_EXTERN(int) git_submodule_update_options_init(
 	git_submodule_update_options *opts, unsigned int version);
 
 /**
@@ -186,7 +187,7 @@ GIT_EXTERN(int) git_submodule_update_init_options(
  *        function works as though GIT_SUBMODULE_UPDATE_OPTIONS_INIT was passed.
  * @return 0 on success, any non-zero return value from a callback
  *         function, or a negative value to indicate an error (use
- *         `giterr_last` for a detailed error message).
+ *         `git_error_last` for a detailed error message).
  */
 GIT_EXTERN(int) git_submodule_update(git_submodule *submodule, int init, git_submodule_update_options *options);
 
@@ -221,6 +222,15 @@ GIT_EXTERN(int) git_submodule_lookup(
 	git_submodule **out,
 	git_repository *repo,
 	const char *name);
+
+/**
+ * Create an in-memory copy of a submodule. The copy must be explicitly
+ * free'd or it will leak.
+ *
+ * @param out Pointer to store the copy of the submodule.
+ * @param source Original submodule to copy.
+ */
+GIT_EXTERN(int) git_submodule_dup(git_submodule **out, git_submodule *source);
 
 /**
  * Release a submodule
@@ -262,7 +272,8 @@ GIT_EXTERN(int) git_submodule_foreach(
  * from the working directory to the new repo.
  *
  * To fully emulate "git submodule add" call this function, then open the
- * submodule repo and perform the clone step as needed.  Lastly, call
+ * submodule repo and perform the clone step as needed (if you don't need
+ * anything custom see `git_submodule_add_clone()`). Lastly, call
  * `git_submodule_add_finalize()` to wrap up adding the new submodule and
  * .gitmodules to the index to be ready to commit.
  *
@@ -283,6 +294,22 @@ GIT_EXTERN(int) git_submodule_add_setup(
 	const char *url,
 	const char *path,
 	int use_gitlink);
+
+/**
+ * Perform the clone step for a newly created submodule.
+ *
+ * This performs the necessary `git_clone` to setup a newly-created submodule.
+ *
+ * @param out The newly created repository object. Optional.
+ * @param submodule The submodule currently waiting for its clone.
+ * @param opts The options to use.
+ *
+ * @return 0 on success, -1 on other errors (see git_clone).
+ */
+GIT_EXTERN(int) git_submodule_clone(
+	git_repository **out,
+	git_submodule *submodule,
+	const git_submodule_update_options *opts);
 
 /**
  * Resolve the setup of a new git submodule.

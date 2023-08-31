@@ -29,14 +29,14 @@ static int write_revert_head(
 	int error = 0;
 
 	if ((error = git_buf_joinpath(&file_path, repo->gitdir, GIT_REVERT_HEAD_FILE)) >= 0 &&
-		(error = git_filebuf_open(&file, file_path.ptr, GIT_FILEBUF_FORCE, GIT_REVERT_FILE_MODE)) >= 0 &&
+		(error = git_filebuf_open(&file, file_path.ptr, GIT_FILEBUF_CREATE_LEADING_DIRS, GIT_REVERT_FILE_MODE)) >= 0 &&
 		(error = git_filebuf_printf(&file, "%s\n", commit_oidstr)) >= 0)
 		error = git_filebuf_commit(&file);
 
 	if (error < 0)
 		git_filebuf_cleanup(&file);
 
-	git_buf_free(&file_path);
+	git_buf_dispose(&file_path);
 
 	return error;
 }
@@ -51,7 +51,7 @@ static int write_merge_msg(
 	int error = 0;
 
 	if ((error = git_buf_joinpath(&file_path, repo->gitdir, GIT_MERGE_MSG_FILE)) < 0 ||
-		(error = git_filebuf_open(&file, file_path.ptr, GIT_FILEBUF_FORCE, GIT_REVERT_FILE_MODE)) < 0 ||
+		(error = git_filebuf_open(&file, file_path.ptr, GIT_FILEBUF_CREATE_LEADING_DIRS, GIT_REVERT_FILE_MODE)) < 0 ||
 		(error = git_filebuf_printf(&file, "Revert \"%s\"\n\nThis reverts commit %s.\n",
 		commit_msgline, commit_oidstr)) < 0)
 		goto cleanup;
@@ -62,7 +62,7 @@ cleanup:
 	if (error < 0)
 		git_filebuf_cleanup(&file);
 
-	git_buf_free(&file_path);
+	git_buf_dispose(&file_path);
 
 	return error;
 }
@@ -112,7 +112,7 @@ static int revert_seterr(git_commit *commit, const char *fmt)
 	git_oid_fmt(commit_oidstr, git_commit_id(commit));
 	commit_oidstr[GIT_OID_HEXSZ] = '\0';
 
-	giterr_set(GITERR_REVERT, fmt, commit_oidstr);
+	git_error_set(GIT_ERROR_REVERT, fmt, commit_oidstr);
 
 	return -1;
 }
@@ -129,7 +129,10 @@ int git_revert_commit(
 	git_tree *parent_tree = NULL, *our_tree = NULL, *revert_tree = NULL;
 	int parent = 0, error = 0;
 
-	assert(out && repo && revert_commit && our_commit);
+	GIT_ASSERT_ARG(out);
+	GIT_ASSERT_ARG(repo);
+	GIT_ASSERT_ARG(revert_commit);
+	GIT_ASSERT_ARG(our_commit);
 
 	if (git_commit_parentcount(revert_commit) > 1) {
 		if (!mainline)
@@ -180,9 +183,10 @@ int git_revert(
 	git_indexwriter indexwriter = GIT_INDEXWRITER_INIT;
 	int error;
 
-	assert(repo && commit);
+	GIT_ASSERT_ARG(repo);
+	GIT_ASSERT_ARG(commit);
 
-	GITERR_CHECK_VERSION(given_opts, GIT_REVERT_OPTIONS_VERSION, "git_revert_options");
+	GIT_ERROR_CHECK_VERSION(given_opts, GIT_REVERT_OPTIONS_VERSION, "git_revert_options");
 
 	if ((error = git_repository__ensure_not_bare(repo, "revert")) < 0)
 		return error;
@@ -201,7 +205,7 @@ int git_revert(
 		(error = write_revert_head(repo, commit_oidstr)) < 0 ||
 		(error = write_merge_msg(repo, commit_oidstr, commit_msg)) < 0 ||
 		(error = git_repository_head(&our_ref, repo)) < 0 ||
-		(error = git_reference_peel((git_object **)&our_commit, our_ref, GIT_OBJ_COMMIT)) < 0 ||
+		(error = git_reference_peel((git_object **)&our_commit, our_ref, GIT_OBJECT_COMMIT)) < 0 ||
 		(error = git_revert_commit(&index, repo, commit, our_commit, opts.mainline, &opts.merge_opts)) < 0 ||
 		(error = git_merge__check_result(repo, index)) < 0 ||
 		(error = git_merge__append_conflicts_to_merge_msg(repo, index)) < 0 ||
@@ -219,14 +223,21 @@ done:
 	git_index_free(index);
 	git_commit_free(our_commit);
 	git_reference_free(our_ref);
-	git_buf_free(&their_label);
+	git_buf_dispose(&their_label);
 
 	return error;
 }
 
-int git_revert_init_options(git_revert_options *opts, unsigned int version)
+int git_revert_options_init(git_revert_options *opts, unsigned int version)
 {
 	GIT_INIT_STRUCTURE_FROM_TEMPLATE(
 		opts, version, git_revert_options, GIT_REVERT_OPTIONS_INIT);
 	return 0;
 }
+
+#ifndef GIT_DEPRECATE_HARD
+int git_revert_init_options(git_revert_options *opts, unsigned int version)
+{
+	return git_revert_options_init(opts, version);
+}
+#endif

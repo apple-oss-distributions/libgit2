@@ -70,13 +70,13 @@ void test_worktree_merge__merge_setup(void)
 		    ours, (const git_annotated_commit **)&theirs, 1));
 
 	for (i = 0; i < ARRAY_SIZE(merge_files); i++) {
-		git_buf_clear(&path);
-		cl_git_pass(git_buf_printf(&path, "%s/%s",
-			    fixture.worktree->gitdir, merge_files[i]));
+		cl_git_pass(git_buf_joinpath(&path,
+		            fixture.worktree->gitdir,
+		            merge_files[i]));
 		cl_assert(git_path_exists(path.ptr));
 	}
 
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 	git_reference_free(ours_ref);
 	git_reference_free(theirs_ref);
 	git_annotated_commit_free(ours);
@@ -115,7 +115,7 @@ void test_worktree_merge__merge_conflict(void)
 	cl_git_pass(git_futils_readbuffer(&buf, path.ptr));
 	cl_assert_equal_s(buf.ptr, CONFLICT_BRANCH_FILE_TXT);
 
-	git_buf_free(&path);
-	git_buf_free(&buf);
+	git_buf_dispose(&path);
+	git_buf_dispose(&buf);
 }
 

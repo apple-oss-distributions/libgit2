@@ -14,13 +14,36 @@
 #include "win32/w32_buffer.h"
 #include "win32/w32_util.h"
 #include "win32/version.h"
+#include <aclapi.h>
 #else
 #include <dirent.h>
 #endif
 #include <stdio.h>
 #include <ctype.h>
 
-#define LOOKS_LIKE_DRIVE_PREFIX(S) (git__isalpha((S)[0]) && (S)[1] == ':')
+static int dos_drive_prefix_length(const char *path)
+{
+	int i;
+
+	/*
+	 * Does it start with an ASCII letter (i.e. highest bit not set),
+	 * followed by a colon?
+	 */
+	if (!(0x80 & (unsigned char)*path))
+		return *path && path[1] == ':' ? 2 : 0;
+
+	/*
+	 * While drive letters must be letters of the English alphabet, it is
+	 * possible to assign virtually _any_ Unicode character via `subst` as
+	 * a drive letter to "virtual drives". Even `1`, or `ä`. Or fun stuff
+	 * like this:
+	 *
+	 *	subst ֍: %USERPROFILE%\Desktop
+	 */
+	for (i = 1; i < 4 && (0x80 & (unsigned char)path[i]); i++)
+		; /* skip first UTF-8 character */
+	return path[i] == ':' ? i + 1 : 0;
+}
 
 #ifdef GIT_WIN32
 static bool looks_like_network_computer_name(const char *path, int pos)
@@ -122,11 +145,11 @@ static int win32_prefix_length(const char *path, int len)
 	GIT_UNUSED(len);
 #else
 	/*
-	 * Mimic unix behavior where '/.git' returns '/': 'C:/.git' will return
-	 * 'C:/' here
+	 * Mimic unix behavior where '/.git' returns '/': 'C:/.git'
+	 * will return 'C:/' here
 	 */
-	if (len == 2 && LOOKS_LIKE_DRIVE_PREFIX(path))
-		return 2;
+	if (dos_drive_prefix_length(path) == len)
+		return len;
 
 	/*
 	 * Similarly checks if we're dealing with a network computer name
@@ -160,7 +183,13 @@ int git_path_dirname_r(git_buf *buffer, const char *path)
 	while (endp > path && *endp == '/')
 		endp--;
 
-	if ((len = win32_prefix_length(path, endp - path + 1)) > 0) {
+	if (endp - path + 1 > INT_MAX) {
+		git_error_set(GIT_ERROR_INVALID, "path too long");
+		len = -1;
+		goto Exit;
+	}
+
+	if ((len = win32_prefix_length(path, (int)(endp - path + 1))) > 0) {
 		is_prefix = 1;
 		goto Exit;
 	}
@@ -180,7 +209,13 @@ int git_path_dirname_r(git_buf *buffer, const char *path)
 		endp--;
 	} while (endp > path && *endp == '/');
 
-	if ((len = win32_prefix_length(path, endp - path + 1)) > 0) {
+	if (endp - path + 1 > INT_MAX) {
+		git_error_set(GIT_ERROR_INVALID, "path too long");
+		len = -1;
+		goto Exit;
+	}
+
+	if ((len = win32_prefix_length(path, (int)(endp - path + 1))) > 0) {
 		is_prefix = 1;
 		goto Exit;
 	}
@@ -207,7 +242,7 @@ char *git_path_dirname(const char *path)
 
 	git_path_dirname_r(&buf, path);
 	dirname = git_buf_detach(&buf);
-	git_buf_free(&buf); /* avoid memleak if error occurs */
+	git_buf_dispose(&buf); /* avoid memleak if error occurs */
 
 	return dirname;
 }
@@ -219,7 +254,7 @@ char *git_path_basename(const char *path)
 
 	git_path_basename_r(&buf, path);
 	basename = git_buf_detach(&buf);
-	git_buf_free(&buf); /* avoid memleak if error occurs */
+	git_buf_dispose(&buf); /* avoid memleak if error occurs */
 
 	return basename;
 }
@@ -239,31 +274,13 @@ size_t git_path_basename_offset(git_buf *buffer)
 	return 0;
 }
 
-const char *git_path_topdir(const char *path)
-{
-	size_t len;
-	ssize_t i;
-
-	assert(path);
-	len = strlen(path);
-
-	if (!len || path[len - 1] != '/')
-		return NULL;
-
-	for (i = (ssize_t)len - 2; i >= 0; --i)
-		if (path[i] == '/')
-			break;
-
-	return &path[i + 1];
-}
-
 int git_path_root(const char *path)
 {
-	int offset = 0;
+	int offset = 0, prefix_len;
 
 	/* Does the root of the path look like a windows drive ? */
-	if (LOOKS_LIKE_DRIVE_PREFIX(path))
-		offset += 2;
+	if ((prefix_len = dos_drive_prefix_length(path)))
+		offset += prefix_len;
 
 #ifdef GIT_WIN32
 	/* Are we dealing with a windows network path? */
@@ -276,18 +293,23 @@ int git_path_root(const char *path)
 		while (path[offset] && path[offset] != '/' && path[offset] != '\\')
 			offset++;
 	}
+
+	if (path[offset] == '\\')
+		return offset;
 #endif
 
-	if (path[offset] == '/' || path[offset] == '\\')
+	if (path[offset] == '/')
 		return offset;
 
 	return -1;	/* Not a real error - signals that path is not rooted */
 }
 
-void git_path_trim_slashes(git_buf *path)
+static void path_trim_slashes(git_buf *path)
 {
 	int ceiling = git_path_root(path->ptr) + 1;
-	assert(ceiling >= 0);
+
+	if (ceiling < 0)
+		return;
 
 	while (path->size > (size_t)ceiling) {
 		if (path->ptr[path->size-1] != '/')
@@ -303,7 +325,8 @@ int git_path_join_unrooted(
 {
 	ssize_t root;
 
-	assert(path && path_out);
+	GIT_ASSERT_ARG(path_out);
+	GIT_ASSERT_ARG(path);
 
 	root = (ssize_t)git_path_root(path);
 
@@ -351,7 +374,8 @@ int git_path_prettify(git_buf *path_out, const char *path, const char *base)
 {
 	char buf[GIT_PATH_MAX];
 
-	assert(path && path_out);
+	GIT_ASSERT_ARG(path_out);
+	GIT_ASSERT_ARG(path);
 
 	/* construct path if needed */
 	if (base != NULL && git_path_root(path) < 0) {
@@ -361,9 +385,9 @@ int git_path_prettify(git_buf *path_out, const char *path, const char *base)
 	}
 
 	if (p_realpath(path, buf) == NULL) {
-		/* giterr_set resets the errno when dealing with a GITERR_OS kind of error */
+		/* git_error_set resets the errno when dealing with a GIT_ERROR_OS kind of error */
 		int error = (errno == ENOENT || errno == ENOTDIR) ? GIT_ENOTFOUND : -1;
-		giterr_set(GITERR_OS, "failed to resolve path '%s'", path);
+		git_error_set(GIT_ERROR_OS, "failed to resolve path '%s'", path);
 
 		git_buf_clear(path_out);
 
@@ -389,7 +413,7 @@ int git_path_to_dir(git_buf *path)
 	return git_buf_oom(path) ? -1 : 0;
 }
 
-void git_path_string_to_dir(char* path, size_t size)
+void git_path_string_to_dir(char *path, size_t size)
 {
 	size_t end = strlen(path);
 
@@ -402,7 +426,9 @@ void git_path_string_to_dir(char* path, size_t size)
 int git__percent_decode(git_buf *decoded_out, const char *input)
 {
 	int len, hi, lo, i;
-	assert(decoded_out && input);
+
+	GIT_ASSERT_ARG(decoded_out);
+	GIT_ASSERT_ARG(input);
 
 	len = (int)strlen(input);
 	git_buf_clear(decoded_out);
@@ -436,7 +462,7 @@ append:
 
 static int error_invalid_local_file_uri(const char *uri)
 {
-	giterr_set(GITERR_CONFIG, "'%s' is not a valid local file URI", uri);
+	git_error_set(GIT_ERROR_CONFIG, "'%s' is not a valid local file URI", uri);
 	return -1;
 }
 
@@ -463,7 +489,8 @@ int git_path_fromurl(git_buf *local_path_out, const char *file_url)
 {
 	int offset;
 
-	assert(local_path_out && file_url);
+	GIT_ASSERT_ARG(local_path_out);
+	GIT_ASSERT_ARG(file_url);
 
 	if ((offset = local_file_url_prefixlen(file_url)) < 0 ||
 		file_url[offset] == '\0' || file_url[offset] == '/')
@@ -488,7 +515,8 @@ int git_path_walk_up(
 	ssize_t stop = 0, scan;
 	char oldc = '\0';
 
-	assert(path && cb);
+	GIT_ASSERT_ARG(path);
+	GIT_ASSERT_ARG(cb);
 
 	if (ceiling != NULL) {
 		if (git__prefixcmp(path->ptr, ceiling) == 0)
@@ -502,7 +530,7 @@ int git_path_walk_up(
 	if (!scan) {
 		error = cb(data, "");
 		if (error)
-			giterr_set_after_callback(error);
+			git_error_set_after_callback(error);
 		return error;
 	}
 
@@ -515,7 +543,7 @@ int git_path_walk_up(
 		iter.ptr[scan] = oldc;
 
 		if (error) {
-			giterr_set_after_callback(error);
+			git_error_set_after_callback(error);
 			break;
 		}
 
@@ -535,7 +563,7 @@ int git_path_walk_up(
 	if (!error && stop == 0 && iter.ptr[0] != '/') {
 		error = cb(data, "");
 		if (error)
-			giterr_set_after_callback(error);
+			git_error_set_after_callback(error);
 	}
 
 	return error;
@@ -543,7 +571,7 @@ int git_path_walk_up(
 
 bool git_path_exists(const char *path)
 {
-	assert(path);
+	GIT_ASSERT_ARG_WITH_RETVAL(path, false);
 	return p_access(path, F_OK) == 0;
 }
 
@@ -560,7 +588,7 @@ bool git_path_isfile(const char *path)
 {
 	struct stat st;
 
-	assert(path);
+	GIT_ASSERT_ARG_WITH_RETVAL(path, false);
 	if (p_stat(path, &st) < 0)
 		return false;
 
@@ -571,7 +599,7 @@ bool git_path_islink(const char *path)
 {
 	struct stat st;
 
-	assert(path);
+	GIT_ASSERT_ARG_WITH_RETVAL(path, false);
 	if (p_lstat(path, &st) < 0)
 		return false;
 
@@ -638,11 +666,11 @@ bool git_path_is_empty_dir(const char *path)
 		return false;
 
 	if ((error = git_buf_sets(&dir, path)) != 0)
-		giterr_clear();
+		git_error_clear();
 	else
 		error = git_path_direach(&dir, 0, path_found_entry, NULL);
 
-	git_buf_free(&dir);
+	git_buf_dispose(&dir);
 
 	return !error;
 }
@@ -654,24 +682,24 @@ int git_path_set_error(int errno_value, const char *path, const char *action)
 	switch (errno_value) {
 	case ENOENT:
 	case ENOTDIR:
-		giterr_set(GITERR_OS, "could not find '%s' to %s", path, action);
+		git_error_set(GIT_ERROR_OS, "could not find '%s' to %s", path, action);
 		return GIT_ENOTFOUND;
 
 	case EINVAL:
 	case ENAMETOOLONG:
-		giterr_set(GITERR_OS, "invalid path for filesystem '%s'", path);
+		git_error_set(GIT_ERROR_OS, "invalid path for filesystem '%s'", path);
 		return GIT_EINVALIDSPEC;
 
 	case EEXIST:
-		giterr_set(GITERR_OS, "failed %s - '%s' already exists", action, path);
+		git_error_set(GIT_ERROR_OS, "failed %s - '%s' already exists", action, path);
 		return GIT_EEXISTS;
 
 	case EACCES:
-		giterr_set(GITERR_OS, "failed %s - '%s' is locked", action, path);
+		git_error_set(GIT_ERROR_OS, "failed %s - '%s' is locked", action, path);
 		return GIT_ELOCKED;
 
 	default:
-		giterr_set(GITERR_OS, "could not %s '%s'", action, path);
+		git_error_set(GIT_ERROR_OS, "could not %s '%s'", action, path);
 		return -1;
 	}
 }
@@ -726,15 +754,13 @@ bool git_path_contains_file(git_buf *base, const char *file)
 	return _check_dir_contents(base, file, &git_path_isfile);
 }
 
-int git_path_find_dir(git_buf *dir, const char *path, const char *base)
+int git_path_find_dir(git_buf *dir)
 {
-	int error = git_path_join_unrooted(dir, path, base, NULL);
+	int error = 0;
+	char buf[GIT_PATH_MAX];
 
-	if (!error) {
-		char buf[GIT_PATH_MAX];
-		if (p_realpath(dir->ptr, buf) != NULL)
-			error = git_buf_sets(dir, buf);
-	}
+	if (p_realpath(dir->ptr, buf) != NULL)
+		error = git_buf_sets(dir, buf);
 
 	/* call dirname if this is not a directory */
 	if (!error) /* && git_path_isdir(dir->ptr) == false) */
@@ -751,7 +777,7 @@ int git_path_resolve_relative(git_buf *path, size_t ceiling)
 	char *base, *to, *from, *next;
 	size_t len;
 
-	GITERR_CHECK_ALLOC_BUF(path);
+	GIT_ERROR_CHECK_ALLOC_BUF(path);
 
 	if (ceiling > path->size)
 		ceiling = path->size;
@@ -780,7 +806,7 @@ int git_path_resolve_relative(git_buf *path, size_t ceiling)
 		else if (len == 2 && from[0] == '.' && from[1] == '.') {
 			/* error out if trying to up one from a hard base */
 			if (to == base && ceiling != 0) {
-				giterr_set(GITERR_INVALID,
+				git_error_set(GIT_ERROR_INVALID,
 					"cannot strip root component off url");
 				return -1;
 			}
@@ -887,7 +913,7 @@ int git_path_make_relative(git_buf *path, const char *parent)
 	/* need at least 1 common path segment */
 	if ((p_dirsep == path->ptr || q_dirsep == parent) &&
 		(*p_dirsep != '/' || *q_dirsep != '/')) {
-		giterr_set(GITERR_INVALID,
+		git_error_set(GIT_ERROR_INVALID,
 			"%s is not a parent of %s", parent, path->ptr);
 		return GIT_ENOTFOUND;
 	}
@@ -911,10 +937,10 @@ int git_path_make_relative(git_buf *path, const char *parent)
 	for (; (q = strchr(q, '/')) && *(q + 1); q++)
 		depth++;
 
-	GITERR_CHECK_ALLOC_MULTIPLY(&newlen, depth, 3);
-	GITERR_CHECK_ALLOC_ADD(&newlen, newlen, plen);
+	GIT_ERROR_CHECK_ALLOC_MULTIPLY(&newlen, depth, 3);
+	GIT_ERROR_CHECK_ALLOC_ADD(&newlen, newlen, plen);
 
-	GITERR_CHECK_ALLOC_ADD(&alloclen, newlen, 1);
+	GIT_ERROR_CHECK_ALLOC_ADD(&alloclen, newlen, 1);
 
 	/* save the offset as we might realllocate the pointer */
 	offset = p - path->ptr;
@@ -956,7 +982,7 @@ void git_path_iconv_clear(git_path_iconv_t *ic)
 	if (ic) {
 		if (ic->map != (iconv_t)-1)
 			iconv_close(ic->map);
-		git_buf_free(&ic->buf);
+		git_buf_dispose(&ic->buf);
 	}
 }
 
@@ -973,7 +999,7 @@ int git_path_iconv(git_path_iconv_t *ic, const char **in, size_t *inlen)
 	git_buf_clear(&ic->buf);
 
 	while (1) {
-		GITERR_CHECK_ALLOC_ADD(&alloclen, wantlen, 1);
+		GIT_ERROR_CHECK_ALLOC_ADD(&alloclen, wantlen, 1);
 		if (git_buf_grow(&ic->buf, alloclen) < 0)
 			return -1;
 
@@ -1010,7 +1036,7 @@ int git_path_iconv(git_path_iconv_t *ic, const char **in, size_t *inlen)
 	return 0;
 
 fail:
-	giterr_set(GITERR_OS, "unable to convert unicode path data");
+	git_error_set(GIT_ERROR_OS, "unable to convert unicode path data");
 	return -1;
 }
 
@@ -1060,7 +1086,7 @@ bool git_path_does_fs_decompose_unicode(const char *root)
 	(void)p_unlink(path.ptr);
 
 done:
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 	return found_decomposed;
 }
 
@@ -1103,7 +1129,7 @@ int git_path_direach(
 	wd_len = git_buf_len(path);
 
 	if ((dir = opendir(path->ptr)) == NULL) {
-		giterr_set(GITERR_OS, "failed to open directory '%s'", path->ptr);
+		git_error_set(GIT_ERROR_OS, "failed to open directory '%s'", path->ptr);
 		if (errno == ENOENT)
 			return GIT_ENOTFOUND;
 
@@ -1130,15 +1156,15 @@ int git_path_direach(
 		if ((error = git_buf_put(path, de_path, de_len)) < 0)
 			break;
 
-		giterr_clear();
+		git_error_clear();
 		error = fn(arg, path);
 
 		git_buf_truncate(path, wd_len); /* restore path */
 
 		/* Only set our own error if the callback did not set one already */
 		if (error != 0) {
-			if (!giterr_last())
-				giterr_set_after_callback(error);
+			if (!git_error_last())
+				git_error_set_after_callback(error);
 
 			break;
 		}
@@ -1173,7 +1199,8 @@ int git_path_diriter_init(
 	if (is_win7_or_later < 0)
 		is_win7_or_later = git_has_win32_version(6, 1, 0);
 
-	assert(diriter && path);
+	GIT_ASSERT_ARG(diriter);
+	GIT_ASSERT_ARG(path);
 
 	memset(diriter, 0, sizeof(git_path_diriter));
 	diriter->handle = INVALID_HANDLE_VALUE;
@@ -1181,16 +1208,16 @@ int git_path_diriter_init(
 	if (git_buf_puts(&diriter->path_utf8, path) < 0)
 		return -1;
 
-	git_path_trim_slashes(&diriter->path_utf8);
+	path_trim_slashes(&diriter->path_utf8);
 
 	if (diriter->path_utf8.size == 0) {
-		giterr_set(GITERR_FILESYSTEM, "could not open directory '%s'", path);
+		git_error_set(GIT_ERROR_FILESYSTEM, "could not open directory '%s'", path);
 		return -1;
 	}
 
 	if ((diriter->parent_len = git_win32_path_from_utf8(diriter->path, diriter->path_utf8.ptr)) < 0 ||
 			!git_win32__findfirstfile_filter(path_filter, diriter->path_utf8.ptr)) {
-		giterr_set(GITERR_OS, "could not parse the directory path '%s'", path);
+		git_error_set(GIT_ERROR_OS, "could not parse the directory path '%s'", path);
 		return -1;
 	}
 
@@ -1203,7 +1230,7 @@ int git_path_diriter_init(
 		is_win7_or_later ? FIND_FIRST_EX_LARGE_FETCH : 0);
 
 	if (diriter->handle == INVALID_HANDLE_VALUE) {
-		giterr_set(GITERR_OS, "could not open directory '%s'", path);
+		git_error_set(GIT_ERROR_OS, "could not open directory '%s'", path);
 		return -1;
 	}
 
@@ -1223,7 +1250,7 @@ static int diriter_update_paths(git_path_diriter *diriter)
 		return -1;
 
 	if (path_len > GIT_WIN_PATH_UTF16) {
-		giterr_set(GITERR_FILESYSTEM,
+		git_error_set(GIT_ERROR_FILESYSTEM,
 			"invalid path '%.*ls\\%ls' (path too long)",
 			diriter->parent_len, diriter->path, diriter->current.cFileName);
 		return -1;
@@ -1273,9 +1300,10 @@ int git_path_diriter_filename(
 	size_t *out_len,
 	git_path_diriter *diriter)
 {
-	assert(out && out_len && diriter);
-
-	assert(diriter->path_utf8.size > diriter->parent_utf8_len);
+	GIT_ASSERT_ARG(out);
+	GIT_ASSERT_ARG(out_len);
+	GIT_ASSERT_ARG(diriter);
+	GIT_ASSERT(diriter->path_utf8.size > diriter->parent_utf8_len);
 
 	*out = &diriter->path_utf8.ptr[diriter->parent_utf8_len+1];
 	*out_len = diriter->path_utf8.size - diriter->parent_utf8_len - 1;
@@ -1287,7 +1315,9 @@ int git_path_diriter_fullpath(
 	size_t *out_len,
 	git_path_diriter *diriter)
 {
-	assert(out && out_len && diriter);
+	GIT_ASSERT_ARG(out);
+	GIT_ASSERT_ARG(out_len);
+	GIT_ASSERT_ARG(diriter);
 
 	*out = diriter->path_utf8.ptr;
 	*out_len = diriter->path_utf8.size;
@@ -1296,7 +1326,8 @@ int git_path_diriter_fullpath(
 
 int git_path_diriter_stat(struct stat *out, git_path_diriter *diriter)
 {
-	assert(out && diriter);
+	GIT_ASSERT_ARG(out);
+	GIT_ASSERT_ARG(diriter);
 
 	return git_win32__file_attribute_to_stat(out,
 		(WIN32_FILE_ATTRIBUTE_DATA *)&diriter->current,
@@ -1308,7 +1339,7 @@ void git_path_diriter_free(git_path_diriter *diriter)
 	if (diriter == NULL)
 		return;
 
-	git_buf_free(&diriter->path_utf8);
+	git_buf_dispose(&diriter->path_utf8);
 
 	if (diriter->handle != INVALID_HANDLE_VALUE) {
 		FindClose(diriter->handle);
@@ -1323,24 +1354,25 @@ int git_path_diriter_init(
 	const char *path,
 	unsigned int flags)
 {
-	assert(diriter && path);
+	GIT_ASSERT_ARG(diriter);
+	GIT_ASSERT_ARG(path);
 
 	memset(diriter, 0, sizeof(git_path_diriter));
 
 	if (git_buf_puts(&diriter->path, path) < 0)
 		return -1;
 
-	git_path_trim_slashes(&diriter->path);
+	path_trim_slashes(&diriter->path);
 
 	if (diriter->path.size == 0) {
-		giterr_set(GITERR_FILESYSTEM, "could not open directory '%s'", path);
+		git_error_set(GIT_ERROR_FILESYSTEM, "could not open directory '%s'", path);
 		return -1;
 	}
 
 	if ((diriter->dir = opendir(diriter->path.ptr)) == NULL) {
-		git_buf_free(&diriter->path);
+		git_buf_dispose(&diriter->path);
 
-		giterr_set(GITERR_OS, "failed to open directory '%s'", path);
+		git_error_set(GIT_ERROR_OS, "failed to open directory '%s'", path);
 		return -1;
 	}
 
@@ -1363,7 +1395,7 @@ int git_path_diriter_next(git_path_diriter *diriter)
 	bool skip_dot = !(diriter->flags & GIT_PATH_DIR_INCLUDE_DOT_AND_DOTDOT);
 	int error = 0;
 
-	assert(diriter);
+	GIT_ASSERT_ARG(diriter);
 
 	errno = 0;
 
@@ -1372,7 +1404,7 @@ int git_path_diriter_next(git_path_diriter *diriter)
 			if (!errno)
 				return GIT_ITEROVER;
 
-			giterr_set(GITERR_OS,
+			git_error_set(GIT_ERROR_OS,
 				"could not read directory '%s'", diriter->path.ptr);
 			return -1;
 		}
@@ -1406,9 +1438,10 @@ int git_path_diriter_filename(
 	size_t *out_len,
 	git_path_diriter *diriter)
 {
-	assert(out && out_len && diriter);
-
-	assert(diriter->path.size > diriter->parent_len);
+	GIT_ASSERT_ARG(out);
+	GIT_ASSERT_ARG(out_len);
+	GIT_ASSERT_ARG(diriter);
+	GIT_ASSERT(diriter->path.size > diriter->parent_len);
 
 	*out = &diriter->path.ptr[diriter->parent_len+1];
 	*out_len = diriter->path.size - diriter->parent_len - 1;
@@ -1420,7 +1453,9 @@ int git_path_diriter_fullpath(
 	size_t *out_len,
 	git_path_diriter *diriter)
 {
-	assert(out && out_len && diriter);
+	GIT_ASSERT_ARG(out);
+	GIT_ASSERT_ARG(out_len);
+	GIT_ASSERT_ARG(diriter);
 
 	*out = diriter->path.ptr;
 	*out_len = diriter->path.size;
@@ -1429,7 +1464,8 @@ int git_path_diriter_fullpath(
 
 int git_path_diriter_stat(struct stat *out, git_path_diriter *diriter)
 {
-	assert(out && diriter);
+	GIT_ASSERT_ARG(out);
+	GIT_ASSERT_ARG(diriter);
 
 	return git_path_lstat(diriter->path.ptr, out);
 }
@@ -1448,7 +1484,7 @@ void git_path_diriter_free(git_path_diriter *diriter)
 	git_path_iconv_clear(&diriter->ic);
 #endif
 
-	git_buf_free(&diriter->path);
+	git_buf_dispose(&diriter->path);
 }
 
 #endif
@@ -1465,7 +1501,8 @@ int git_path_dirload(
 	char *dup;
 	int error;
 
-	assert(contents && path);
+	GIT_ASSERT_ARG(contents);
+	GIT_ASSERT_ARG(path);
 
 	if ((error = git_path_diriter_init(&iter, path, flags)) < 0)
 		return error;
@@ -1474,10 +1511,10 @@ int git_path_dirload(
 		if ((error = git_path_diriter_fullpath(&name, &name_len, &iter)) < 0)
 			break;
 
-		assert(name_len > prefix_len);
+		GIT_ASSERT(name_len > prefix_len);
 
 		dup = git__strndup(name + prefix_len, name_len - prefix_len);
-		GITERR_CHECK_ALLOC(dup);
+		GIT_ERROR_CHECK_ALLOC(dup);
 
 		if ((error = git_vector_insert(contents, dup)) < 0)
 			break;
@@ -1523,8 +1560,8 @@ GIT_INLINE(bool) verify_dospath(
 static int32_t next_hfs_char(const char **in, size_t *len)
 {
 	while (*len) {
-		int32_t codepoint;
-		int cp_len = git__utf8_iterate((const uint8_t *)(*in), (int)(*len), &codepoint);
+		uint32_t codepoint;
+		int cp_len = git_utf8_iterate(&codepoint, *in, *len);
 		if (cp_len < 0)
 			return -1;
 
@@ -1556,7 +1593,7 @@ static int32_t next_hfs_char(const char **in, size_t *len)
 		 * the ASCII range, which is perfectly fine, because the
 		 * git folder name can only be composed of ascii characters
 		 */
-		return git__tolower(codepoint);
+		return git__tolower((int)codepoint);
 	}
 	return 0; /* NULL byte -- end of string */
 }
@@ -1608,8 +1645,12 @@ GIT_INLINE(bool) verify_dotgit_ntfs(git_repository *repo, const char *path, size
 	if (!start)
 		return true;
 
-	/* Reject paths like ".git\" */
-	if (path[start] == '\\')
+	/*
+	 * Reject paths that start with Windows-style directory separators
+	 * (".git\") or NTFS alternate streams (".git:") and could be used
+	 * to write to the ".git" directory on Windows platforms.
+	 */
+	if (path[start] == '\\' || path[start] == ':')
 		return false;
 
 	/* Reject paths like '.git ' or '.git.' */
@@ -1621,12 +1662,21 @@ GIT_INLINE(bool) verify_dotgit_ntfs(git_repository *repo, const char *path, size
 	return false;
 }
 
-GIT_INLINE(bool) only_spaces_and_dots(const char *path)
+/*
+ * Windows paths that end with spaces and/or dots are elided to the
+ * path without them for backward compatibility.  That is to say
+ * that opening file "foo ", "foo." or even "foo . . ." will all
+ * map to a filename of "foo".  This function identifies spaces and
+ * dots at the end of a filename, whether the proper end of the
+ * filename (end of string) or a colon (which would indicate a
+ * Windows alternate data stream.)
+ */
+GIT_INLINE(bool) ntfs_end_of_filename(const char *path)
 {
 	const char *c = path;
 
 	for (;; c++) {
-		if (*c == '\0')
+		if (*c == '\0' || *c == ':')
 			return true;
 		if (*c != ' ' && *c != '.')
 			return false;
@@ -1641,13 +1691,13 @@ GIT_INLINE(bool) verify_dotgit_ntfs_generic(const char *name, size_t len, const 
 
 	if (name[0] == '.' && len >= dotgit_len &&
 	    !strncasecmp(name + 1, dotgit_name, dotgit_len)) {
-		return !only_spaces_and_dots(name + dotgit_len + 1);
+		return !ntfs_end_of_filename(name + dotgit_len + 1);
 	}
 
 	/* Detect the basic NTFS shortname with the first six chars */
 	if (!strncasecmp(name, dotgit_name, 6) && name[6] == '~' &&
 	    name[7] >= '1' && name[7] <= '4')
-		return !only_spaces_and_dots(name + 8);
+		return !ntfs_end_of_filename(name + 8);
 
 	/* Catch fallback names */
 	for (i = 0, saw_tilde = 0; i < 8; i++) {
@@ -1662,14 +1712,14 @@ GIT_INLINE(bool) verify_dotgit_ntfs_generic(const char *name, size_t len, const 
 			saw_tilde = 1;
 		} else if (i >= 6) {
 			return true;
-		} else if (name[i] < 0) {
+		} else if ((unsigned char)name[i] > 127) {
 			return true;
 		} else if (git__tolower(name[i]) != shortname_pfix[i]) {
 			return true;
 		}
 	}
 
-	return !only_spaces_and_dots(name + i);
+	return !ntfs_end_of_filename(name + i);
 }
 
 GIT_INLINE(bool) verify_char(unsigned char c, unsigned int flags)
@@ -1766,14 +1816,14 @@ static bool verify_component(
 	if (flags & GIT_PATH_REJECT_DOT_GIT_HFS) {
 		if (!verify_dotgit_hfs(component, len))
 			return false;
-		if (S_ISLNK(mode) && git_path_is_hfs_dotgit_modules(component, len))
+		if (S_ISLNK(mode) && git_path_is_gitfile(component, len, GIT_PATH_GITFILE_GITMODULES, GIT_PATH_FS_HFS))
 			return false;
 	}
 
 	if (flags & GIT_PATH_REJECT_DOT_GIT_NTFS) {
 		if (!verify_dotgit_ntfs(repo, component, len))
 			return false;
-		if (S_ISLNK(mode) && git_path_is_ntfs_dotgit_modules(component, len))
+		if (S_ISLNK(mode) && git_path_is_gitfile(component, len, GIT_PATH_GITFILE_GITMODULES, GIT_PATH_FS_NTFS))
 			return false;
 	}
 
@@ -1803,7 +1853,7 @@ GIT_INLINE(unsigned int) dotgit_flags(
 	git_repository *repo,
 	unsigned int flags)
 {
-	int protectHFS = 0, protectNTFS = 0;
+	int protectHFS = 0, protectNTFS = 1;
 	int error = 0;
 
 	flags |= GIT_PATH_REJECT_DOT_GIT_LITERAL;
@@ -1812,24 +1862,20 @@ GIT_INLINE(unsigned int) dotgit_flags(
 	protectHFS = 1;
 #endif
 
-#ifdef GIT_WIN32
-	protectNTFS = 1;
-#endif
-
 	if (repo && !protectHFS)
-		error = git_repository__cvar(&protectHFS, repo, GIT_CVAR_PROTECTHFS);
+		error = git_repository__configmap_lookup(&protectHFS, repo, GIT_CONFIGMAP_PROTECTHFS);
 	if (!error && protectHFS)
 		flags |= GIT_PATH_REJECT_DOT_GIT_HFS;
 
-	if (repo && !protectNTFS)
-		error = git_repository__cvar(&protectNTFS, repo, GIT_CVAR_PROTECTNTFS);
+	if (repo)
+		error = git_repository__configmap_lookup(&protectNTFS, repo, GIT_CONFIGMAP_PROTECTNTFS);
 	if (!error && protectNTFS)
 		flags |= GIT_PATH_REJECT_DOT_GIT_NTFS;
 
 	return flags;
 }
 
-bool git_path_isvalid(
+bool git_path_validate(
 	git_repository *repo,
 	const char *path,
 	uint16_t mode,
@@ -1856,6 +1902,52 @@ bool git_path_isvalid(
 	return verify_component(repo, start, (c - start), mode, flags);
 }
 
+#ifdef GIT_WIN32
+GIT_INLINE(bool) should_validate_longpaths(git_repository *repo)
+{
+	int longpaths = 0;
+
+	if (repo &&
+	    git_repository__configmap_lookup(&longpaths, repo, GIT_CONFIGMAP_LONGPATHS) < 0)
+		longpaths = 0;
+
+	return (longpaths == 0);
+}
+
+#else
+
+GIT_INLINE(bool) should_validate_longpaths(git_repository *repo)
+{
+	GIT_UNUSED(repo);
+
+	return false;
+}
+#endif
+
+int git_path_validate_workdir(git_repository *repo, const char *path)
+{
+	if (should_validate_longpaths(repo))
+		return git_path_validate_filesystem(path, strlen(path));
+
+	return 0;
+}
+
+int git_path_validate_workdir_with_len(
+	git_repository *repo,
+	const char *path,
+	size_t path_len)
+{
+	if (should_validate_longpaths(repo))
+		return git_path_validate_filesystem(path, path_len);
+
+	return 0;
+}
+
+int git_path_validate_workdir_buf(git_repository *repo, git_buf *path)
+{
+	return git_path_validate_workdir_with_len(repo, path->ptr, path->size);
+}
+
 int git_path_normalize_slashes(git_buf *out, const char *path)
 {
 	int error;
@@ -1872,64 +1964,138 @@ int git_path_normalize_slashes(git_buf *out, const char *path)
 	return 0;
 }
 
-static int verify_dotgit_generic(const char *name, size_t len, const char *dotgit_name, size_t dotgit_len, const char *shortname_pfix)
-{
-	if (!verify_dotgit_ntfs_generic(name, len, dotgit_name, dotgit_len, shortname_pfix))
-		return false;
+static const struct {
+	const char *file;
+	const char *hash;
+	size_t filelen;
+} gitfiles[] = {
+	{ "gitignore", "gi250a", CONST_STRLEN("gitignore") },
+	{ "gitmodules", "gi7eba", CONST_STRLEN("gitmodules") },
+	{ "gitattributes", "gi7d29", CONST_STRLEN("gitattributes") }
+};
 
-	return verify_dotgit_hfs_generic(name, len, dotgit_name, dotgit_len);
+extern int git_path_is_gitfile(const char *path, size_t pathlen, git_path_gitfile gitfile, git_path_fs fs)
+{
+	const char *file, *hash;
+	size_t filelen;
+
+	if (!(gitfile >= GIT_PATH_GITFILE_GITIGNORE && gitfile < ARRAY_SIZE(gitfiles))) {
+		git_error_set(GIT_ERROR_OS, "invalid gitfile for path validation");
+		return -1;
+	}
+
+	file = gitfiles[gitfile].file;
+	filelen = gitfiles[gitfile].filelen;
+	hash = gitfiles[gitfile].hash;
+
+	switch (fs) {
+	case GIT_PATH_FS_GENERIC:
+		return !verify_dotgit_ntfs_generic(path, pathlen, file, filelen, hash) ||
+		       !verify_dotgit_hfs_generic(path, pathlen, file, filelen);
+	case GIT_PATH_FS_NTFS:
+		return !verify_dotgit_ntfs_generic(path, pathlen, file, filelen, hash);
+	case GIT_PATH_FS_HFS:
+		return !verify_dotgit_hfs_generic(path, pathlen, file, filelen);
+	default:
+		git_error_set(GIT_ERROR_OS, "invalid filesystem for path validation");
+		return -1;
+	}
 }
 
-int git_path_is_ntfs_dotgit_modules(const char *name, size_t len)
+bool git_path_supports_symlinks(const char *dir)
 {
-	return !verify_dotgit_ntfs_generic(name, len, "gitmodules", CONST_STRLEN("gitmodules"), "gi7eba");
+	git_buf path = GIT_BUF_INIT;
+	bool supported = false;
+	struct stat st;
+	int fd;
+
+	if ((fd = git_futils_mktmp(&path, dir, 0666)) < 0 ||
+	    p_close(fd) < 0 ||
+	    p_unlink(path.ptr) < 0 ||
+	    p_symlink("testing", path.ptr) < 0 ||
+	    p_lstat(path.ptr, &st) < 0)
+		goto done;
+
+	supported = (S_ISLNK(st.st_mode) != 0);
+done:
+	if (path.size)
+		(void)p_unlink(path.ptr);
+	git_buf_dispose(&path);
+	return supported;
 }
 
-int git_path_is_hfs_dotgit_modules(const char *name, size_t len)
+int git_path_validate_system_file_ownership(const char *path)
 {
-	return !verify_dotgit_hfs_generic(name, len, "gitmodules", CONST_STRLEN("gitmodules"));
-}
+#ifndef GIT_WIN32
+	GIT_UNUSED(path);
+	return GIT_OK;
+#else
+	git_win32_path buf;
+	PSID owner_sid;
+	PSECURITY_DESCRIPTOR descriptor = NULL;
+	HANDLE token;
+	TOKEN_USER *info = NULL;
+	DWORD err, len;
+	int ret;
 
-int git_path_is_dotgit_modules(const char *name, size_t len)
-{
-	if (git_path_is_hfs_dotgit_modules(name, len))
-		return 1;
+	if (git_win32_path_from_utf8(buf, path) < 0)
+		return -1;
 
-	return git_path_is_ntfs_dotgit_modules(name, len);
-}
+	err = GetNamedSecurityInfoW(buf, SE_FILE_OBJECT,
+				    OWNER_SECURITY_INFORMATION |
+					    DACL_SECURITY_INFORMATION,
+				    &owner_sid, NULL, NULL, NULL, &descriptor);
 
-int git_path_is_ntfs_dotgit_ignore(const char *name, size_t len)
-{
-	return !verify_dotgit_ntfs_generic(name, len, "gitignore", CONST_STRLEN("gitignore"), "gi250a");
-}
+	if (err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND) {
+		ret = GIT_ENOTFOUND;
+		goto cleanup;
+	}
 
-int git_path_is_hfs_dotgit_ignore(const char *name, size_t len)
-{
-	return !verify_dotgit_hfs_generic(name, len, "gitignore", CONST_STRLEN("gitignore"));
-}
+	if (err != ERROR_SUCCESS) {
+		git_error_set(GIT_ERROR_OS, "failed to get security information");
+		ret = GIT_ERROR;
+		goto cleanup;
+	}
 
-int git_path_is_dotgit_ignore(const char *name, size_t len)
-{
-	if (git_path_is_hfs_dotgit_ignore(name, len))
-		return 1;
+	if (!IsValidSid(owner_sid)) {
+		git_error_set(GIT_ERROR_INVALID, "programdata configuration file owner is unknown");
+		ret = GIT_ERROR;
+		goto cleanup;
+	}
 
-	return git_path_is_ntfs_dotgit_ignore(name, len);
-}
+	if (IsWellKnownSid(owner_sid, WinBuiltinAdministratorsSid) ||
+	    IsWellKnownSid(owner_sid, WinLocalSystemSid)) {
+		ret = GIT_OK;
+		goto cleanup;
+	}
 
-int git_path_is_hfs_dotgit_attributes(const char *name, size_t len)
-{
-	return !verify_dotgit_hfs_generic(name, len, "gitattributes", CONST_STRLEN("gitattributes"));
-}
+	/* Obtain current user's SID */
+	if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) &&
+	    !GetTokenInformation(token, TokenUser, NULL, 0, &len)) {
+		info = git__malloc(len);
+		GIT_ERROR_CHECK_ALLOC(info);
+		if (!GetTokenInformation(token, TokenUser, info, len, &len)) {
+			git__free(info);
+			info = NULL;
+		}
+	}
 
-int git_path_is_ntfs_dotgit_attributes(const char *name, size_t len)
-{
-	return !verify_dotgit_ntfs_generic(name, len, "gitattributes", CONST_STRLEN("gitattributes"), "gi7d29");
-}
+	/*
+	 * If the file is owned by the same account that is running the current
+	 * process, it's okay to read from that file.
+	 */
+	if (info && EqualSid(owner_sid, info->User.Sid))
+		ret = GIT_OK;
+	else {
+		git_error_set(GIT_ERROR_INVALID, "programdata configuration file owner is not valid");
+		ret = GIT_ERROR;
+	}
+	git__free(info);
 
-int git_path_is_dotgit_attributes(const char *name, size_t len)
-{
-	if (git_path_is_hfs_dotgit_attributes(name, len))
-		return 1;
+cleanup:
+	if (descriptor)
+		LocalFree(descriptor);
 
-	return git_path_is_ntfs_dotgit_attributes(name, len);
+	return ret;
+#endif
 }

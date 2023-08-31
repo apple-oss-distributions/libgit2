@@ -1,5 +1,5 @@
 #include "clar_libgit2.h"
-#include "fileops.h"
+#include "futils.h"
 
 typedef struct name_data {
 	int count; /* return count */
@@ -55,7 +55,7 @@ static void dirent_cleanup__cb(void *_d)
 
 	cl_must_pass(p_rmdir(top_dir));
 
-	git_buf_free(&d->path);
+	git_buf_dispose(&d->path);
 }
 
 static void check_counts(walk_data *d)

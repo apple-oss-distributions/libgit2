@@ -1,6 +1,6 @@
 #include "clar_libgit2.h"
 
-#include "fileops.h"
+#include "futils.h"
 #include "fetchhead.h"
 
 #include "fetchhead_data.h"
@@ -82,7 +82,7 @@ void test_fetchhead_nonetwork__write(void)
 	int equals = 0;
 	size_t i;
 
-	git_vector_init(&fetchhead_vector, 6, NULL);
+	cl_git_pass(git_vector_init(&fetchhead_vector, 6, NULL));
 
 	cl_set_cleanup(&cleanup_repository, "./test1");
 	cl_git_pass(git_repository_init(&g_repo, "./test1", 0));
@@ -94,7 +94,7 @@ void test_fetchhead_nonetwork__write(void)
 
 	equals = (strcmp(fetchhead_buf.ptr, FETCH_HEAD_WILDCARD_DATA_LOCAL) == 0);
 
-	git_buf_free(&fetchhead_buf);
+	git_buf_dispose(&fetchhead_buf);
 
 	git_vector_foreach(&fetchhead_vector, i, fetchhead_ref) {
 		git_fetchhead_ref_free(fetchhead_ref);
@@ -108,7 +108,7 @@ void test_fetchhead_nonetwork__write(void)
 typedef struct {
 	git_vector *fetchhead_vector;
 	size_t idx;
-} fetchhead_ref_cb_data; 
+} fetchhead_ref_cb_data;
 
 static int fetchhead_ref_cb(const char *name, const char *url,
 	const git_oid *oid, unsigned int is_merge, void *payload)
@@ -293,7 +293,7 @@ void test_fetchhead_nonetwork__invalid_for_merge(void)
 	cl_git_rewritefile("./test1/.git/FETCH_HEAD", "49322bb17d3acc9146f98c97d078513228bbf3c0\tinvalid-merge\t\n");
 	cl_git_fail(git_repository_fetchhead_foreach(g_repo, read_noop, NULL));
 
-	cl_assert(git__prefixcmp(giterr_last()->message, "invalid for-merge") == 0);
+	cl_assert(git__prefixcmp(git_error_last()->message, "invalid for-merge") == 0);
 }
 
 void test_fetchhead_nonetwork__invalid_description(void)
@@ -304,7 +304,7 @@ void test_fetchhead_nonetwork__invalid_description(void)
 	cl_git_rewritefile("./test1/.git/FETCH_HEAD", "49322bb17d3acc9146f98c97d078513228bbf3c0\tnot-for-merge\n");
 	cl_git_fail(git_repository_fetchhead_foreach(g_repo, read_noop, NULL));
 
-	cl_assert(git__prefixcmp(giterr_last()->message, "invalid description") == 0);
+	cl_assert(git__prefixcmp(git_error_last()->message, "invalid description") == 0);
 }
 
 static int assert_master_for_merge(const char *ref, const char *url, const git_oid *id, unsigned int is_merge, void *data)
@@ -317,6 +317,16 @@ static int assert_master_for_merge(const char *ref, const char *url, const git_o
 		return -1;
 
 	return 0;
+}
+
+static int assert_none_for_merge(const char *ref, const char *url, const git_oid *id, unsigned int is_merge, void *data)
+{
+	GIT_UNUSED(ref);
+	GIT_UNUSED(url);
+	GIT_UNUSED(id);
+	GIT_UNUSED(data);
+
+	return is_merge ? -1 : 0;
 }
 
 void test_fetchhead_nonetwork__unborn_with_upstream(void)
@@ -364,6 +374,25 @@ void test_fetchhead_nonetwork__fetch_into_repo_with_symrefs(void)
 	git_remote_free(remote);
 	git_reference_free(symref);
 	cl_git_sandbox_cleanup();
+}
+
+void test_fetchhead_nonetwork__fetch_into_repo_with_invalid_head(void)
+{
+	git_remote *remote;
+	char *strings[] = { "refs/heads/*:refs/remotes/origin/*" };
+	git_strarray refspecs = { strings, 1 };
+
+	cl_set_cleanup(&cleanup_repository, "./test1");
+	cl_git_pass(git_repository_init(&g_repo, "./test1", 0));
+
+	/* HEAD pointing to nonexistent branch */
+	cl_git_rewritefile("./test1/.git/HEAD", "ref: refs/heads/\n");
+
+	cl_git_pass(git_remote_create_anonymous(&remote, g_repo, cl_fixture("testrepo.git")));
+	cl_git_pass(git_remote_fetch(remote, &refspecs, NULL, NULL));
+	cl_git_pass(git_repository_fetchhead_foreach(g_repo, assert_none_for_merge, NULL));
+
+	git_remote_free(remote);
 }
 
 void test_fetchhead_nonetwork__quote_in_branch_name(void)
@@ -427,7 +456,7 @@ void test_fetchhead_nonetwork__create_when_refpecs_given(void)
 	cl_assert(found_haacked);
 
 	git_remote_free(remote);
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 }
 
 static bool count_refs_called;
@@ -491,5 +520,23 @@ void test_fetchhead_nonetwork__create_with_multiple_refspecs(void)
 	}
 
 	git_remote_free(remote);
-	git_buf_free(&path);
+	git_buf_dispose(&path);
+}
+
+void test_fetchhead_nonetwork__credentials_are_stripped(void)
+{
+	git_fetchhead_ref *ref;
+	git_oid oid;
+
+	cl_git_pass(git_oid_fromstr(&oid, "49322bb17d3acc9146f98c97d078513228bbf3c0"));
+	cl_git_pass(git_fetchhead_ref_create(&ref, &oid, 0,
+		"refs/tags/commit_tree", "http://foo:bar@github.com/libgit2/TestGitRepository"));
+	cl_assert_equal_s(ref->remote_url, "http://github.com/libgit2/TestGitRepository");
+	git_fetchhead_ref_free(ref);
+
+	cl_git_pass(git_oid_fromstr(&oid, "49322bb17d3acc9146f98c97d078513228bbf3c0"));
+	cl_git_pass(git_fetchhead_ref_create(&ref, &oid, 0,
+		"refs/tags/commit_tree", "https://foo:bar@github.com/libgit2/TestGitRepository"));
+	cl_assert_equal_s(ref->remote_url, "https://github.com/libgit2/TestGitRepository");
+	git_fetchhead_ref_free(ref);
 }

@@ -4,7 +4,7 @@
 #include "buffer.h"
 #include "merge.h"
 #include "../merge_helpers.h"
-#include "fileops.h"
+#include "futils.h"
 
 static git_repository *repo;
 
@@ -13,7 +13,7 @@ static git_repository *repo;
 #define DF_SIDE1_BRANCH		"df_side1"
 #define DF_SIDE2_BRANCH		"df_side2"
 
-// Fixture setup and teardown
+/* Fixture setup and teardown */
 void test_merge_trees_modeconflict__initialize(void)
 {
 	repo = cl_git_sandbox_init(TEST_REPO_PATH);

@@ -59,23 +59,10 @@ extern int git_win32__set_hidden(const char *path, bool hidden);
  */
 extern int git_win32__hidden(bool *hidden, const char *path);
 
-/**
- * Removes any trailing backslashes from a path, except in the case of a drive
- * letter path (C:\, D:\, etc.). This function cannot fail.
- *
- * @param path The path which should be trimmed.
- * @return The length of the modified string (<= the input length)
- */
-size_t git_win32__path_trim_end(wchar_t *str, size_t len);
-
-/**
- * Removes any of the following namespace prefixes from a path,
- * if found: "\??\", "\\?\", "\\?\UNC\". This function cannot fail.
- *
- * @param path The path which should be converted.
- * @return The length of the modified string (<= the input length)
- */
-size_t git_win32__canonicalize_path(wchar_t *str, size_t len);
+extern int git_win32__file_attribute_to_stat(
+	struct stat *st,
+	const WIN32_FILE_ATTRIBUTE_DATA *attrdata,
+	const wchar_t *path);
 
 /**
  * Converts a FILETIME structure to a struct timespec.
@@ -87,8 +74,8 @@ GIT_INLINE(void) git_win32__filetime_to_timespec(
 	const FILETIME *ft,
 	struct timespec *ts)
 {
-	long long winTime = ((long long)ft->dwHighDateTime << 32) + ft->dwLowDateTime;
-	winTime -= 116444736000000000LL; /* Windows to Unix Epoch conversion */
+	int64_t winTime = ((int64_t)ft->dwHighDateTime << 32) + ft->dwLowDateTime;
+	winTime -= INT64_C(116444736000000000); /* Windows to Unix Epoch conversion */
 	ts->tv_sec = (time_t)(winTime / 10000000);
 #ifdef GIT_USE_NSEC
 	ts->tv_nsec = (winTime % 10000000) * 100;
@@ -100,11 +87,11 @@ GIT_INLINE(void) git_win32__filetime_to_timespec(
 GIT_INLINE(void) git_win32__timeval_to_filetime(
 	FILETIME *ft, const struct p_timeval tv)
 {
-	long long ticks = (tv.tv_sec * 10000000LL) +
-		(tv.tv_usec * 10LL) + 116444736000000000LL;
+	int64_t ticks = (tv.tv_sec * INT64_C(10000000)) +
+		(tv.tv_usec * INT64_C(10)) + INT64_C(116444736000000000);
 
-	ft->dwHighDateTime = ((ticks >> 32) & 0xffffffffLL);
-	ft->dwLowDateTime = (ticks & 0xffffffffLL);
+	ft->dwHighDateTime = ((ticks >> 32) & INT64_C(0xffffffff));
+	ft->dwLowDateTime = (ticks & INT64_C(0xffffffff));
 }
 
 GIT_INLINE(void) git_win32__stat_init(
@@ -133,7 +120,7 @@ GIT_INLINE(void) git_win32__stat_init(
 	st->st_uid = 0;
 	st->st_nlink = 1;
 	st->st_mode = mode;
-	st->st_size = ((git_off_t)nFileSizeHigh << 32) + nFileSizeLow;
+	st->st_size = ((int64_t)nFileSizeHigh << 32) + nFileSizeLow;
 	st->st_dev = _getdrive() - 1;
 	st->st_rdev = st->st_dev;
 	git_win32__filetime_to_timespec(&ftLastAccessTime, &(st->st_atim));
@@ -152,37 +139,6 @@ GIT_INLINE(void) git_win32__file_information_to_stat(
 		fileinfo->ftCreationTime,
 		fileinfo->ftLastAccessTime,
 		fileinfo->ftLastWriteTime);
-}
-
-GIT_INLINE(int) git_win32__file_attribute_to_stat(
-	struct stat *st,
-	const WIN32_FILE_ATTRIBUTE_DATA *attrdata,
-	const wchar_t *path)
-{
-	git_win32__stat_init(st,
-		attrdata->dwFileAttributes,
-		attrdata->nFileSizeHigh,
-		attrdata->nFileSizeLow,
-		attrdata->ftCreationTime,
-		attrdata->ftLastAccessTime,
-		attrdata->ftLastWriteTime);
-
-	if (attrdata->dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT && path) {
-		git_win32_path target;
-
-		if (git_win32_path_readlink_w(target, path) >= 0) {
-			st->st_mode = (st->st_mode & ~S_IFMT) | S_IFLNK;
-
-			/* st_size gets the UTF-8 length of the target name, in bytes,
-			 * not counting the NULL terminator */
-			if ((st->st_size = git__utf16_to_8(NULL, 0, target)) < 0) {
-				giterr_set(GITERR_OS, "could not convert reparse point name for '%ls'", path);
-				return -1;
-			}
-		}
-	}
-
-	return 0;
 }
 
 #endif

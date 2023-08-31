@@ -203,6 +203,14 @@ void test_blame_simple__trivial_libgit2(void)
 	check_blame_hunk_index(g_repo, g_blame, 49, 60, 1, 0, "d12299fe", "src/git.h");
 }
 
+/* This was leading to segfaults on some systems during cache eviction. */
+void test_blame_simple__trivial_libgit2_under_cache_pressure(void)
+{
+	ssize_t old_max_storage = git_cache__max_storage;
+	git_cache__max_storage = 1024 * 1024;
+	test_blame_simple__trivial_libgit2();
+	git_cache__max_storage = old_max_storage;
+}
 
 /*
  * $ git blame -n b.txt -L 8
@@ -228,6 +236,24 @@ void test_blame_simple__can_restrict_lines_min(void)
 	cl_assert_equal_i(2, git_blame_get_hunk_count(g_blame));
 	check_blame_hunk_index(g_repo, g_blame, 0,  8, 3, 0, "63d671eb", "b.txt");
 	check_blame_hunk_index(g_repo, g_blame, 1, 11, 5, 0, "aa06ecca", "b.txt");
+}
+
+/*
+ * $ git blame -n c.txt
+ *    orig line no                          final line no
+ * commit    V  author      timestamp                  V
+ * 702c7aa5  1 (Carl Schwan 2020-01-29 01:52:31 +0100  4
+ */
+void test_blame_simple__can_ignore_whitespace_change(void)
+{
+	git_blame_options opts = GIT_BLAME_OPTIONS_INIT;
+
+	cl_git_pass(git_repository_open(&g_repo, cl_fixture("blametest.git")));
+
+	opts.flags |= GIT_BLAME_IGNORE_WHITESPACE;
+	cl_git_pass(git_blame_file(&g_blame, g_repo, "c.txt", &opts));
+	cl_assert_equal_i(1, git_blame_get_hunk_count(g_blame));
+	check_blame_hunk_index(g_repo, g_blame, 0,  1, 4, 0, "702c7aa5", "c.txt");
 }
 
 /*

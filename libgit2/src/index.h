@@ -9,7 +9,7 @@
 
 #include "common.h"
 
-#include "fileops.h"
+#include "futils.h"
 #include "filebuf.h"
 #include "vector.h"
 #include "idxmap.h"
@@ -19,6 +19,8 @@
 
 #define GIT_INDEX_FILE "index"
 #define GIT_INDEX_FILE_MODE 0666
+
+extern bool git_index__enforce_unsaved_safety;
 
 struct git_index {
 	git_refcount rc;
@@ -31,12 +33,13 @@ struct git_index {
 	git_idxmap *entries_map;
 
 	git_vector deleted; /* deleted entries if readers > 0 */
-	git_atomic readers; /* number of active iterators */
+	git_atomic32 readers; /* number of active iterators */
 
 	unsigned int on_disk:1;
 	unsigned int ignore_case:1;
 	unsigned int distrust_filemode:1;
 	unsigned int no_symlinks:1;
+	unsigned int dirty:1;	/* whether we have unsaved changes */
 
 	git_tree_cache *tree;
 	git_pool tree_pool;
@@ -50,6 +53,12 @@ struct git_index {
 	git_vector_cmp reuc_search;
 
 	unsigned int version;
+};
+
+struct git_index_iterator {
+	git_index *index;
+	git_vector snap;
+	size_t cur;
 };
 
 struct git_index_conflict_iterator {
@@ -142,6 +151,13 @@ extern int git_index_snapshot_find(
 
 /* Replace an index with a new index */
 int git_index_read_index(git_index *index, const git_index *new_index);
+
+GIT_INLINE(int) git_index_is_dirty(git_index *index)
+{
+	return index->dirty;
+}
+
+extern int git_index_read_safely(git_index *index);
 
 typedef struct {
 	git_index *index;

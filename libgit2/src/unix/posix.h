@@ -33,7 +33,7 @@ typedef int GIT_SOCKET;
 # define st_atime_nsec st_atim.tv_nsec
 # define st_mtime_nsec st_mtim.tv_nsec
 # define st_ctime_nsec st_ctim.tv_nsec
-#elif !defined(GIT_USE_STAT_MTIME_NSEC) && defined(GIT_USE_NEC)
+#elif !defined(GIT_USE_STAT_MTIME_NSEC) && defined(GIT_USE_NSEC)
 # error GIT_USE_NSEC defined but unknown struct stat nanosecond type
 #endif
 
@@ -59,13 +59,25 @@ GIT_INLINE(int) p_fsync(int fd)
 #define p_strcasecmp(s1, s2) strcasecmp(s1, s2)
 #define p_strncasecmp(s1, s2, c) strncasecmp(s1, s2, c)
 #define p_vsnprintf(b, c, f, a) vsnprintf(b, c, f, a)
-#define p_snprintf(b, c, ...) snprintf(b, c, __VA_ARGS__)
+#define p_snprintf snprintf
 #define p_mkstemp(p) mkstemp(p)
 #define p_chdir(p) chdir(p)
-#define p_chmod(p,m) chmod(p, m)
 #define p_rmdir(p) rmdir(p)
 #define p_access(p,m) access(p,m)
 #define p_ftruncate(fd, sz) ftruncate(fd, sz)
+
+/*
+ * Pre-Android 5 did not implement a virtual filesystem atop FAT
+ * partitions for Unix permissions, which causes chmod to fail. However,
+ * Unix permissions have no effect on Android anyway as file permissions
+ * are not actually managed this way, so treating it as a no-op across
+ * all Android is safe.
+ */
+#ifdef __ANDROID__
+# define p_chmod(p,m) 0
+#else
+# define p_chmod(p,m) chmod(p, m)
+#endif
 
 /* see win32/posix.h for explanation about why this exists */
 #define p_lstat_posixly(p,b) lstat(p,b)
@@ -89,14 +101,7 @@ GIT_INLINE(int) p_futimes(int f, const struct p_timeval t[2])
 # define p_futimes futimes
 #endif
 
-#ifdef GIT_USE_REGCOMP_L
-#include <xlocale.h>
-GIT_INLINE(int) p_regcomp(regex_t *preg, const char *pattern, int cflags)
-{
-	return regcomp_l(preg, pattern, cflags, (locale_t) 0);
-}
-#else
-# define p_regcomp regcomp
-#endif
+#define p_pread(f, d, s, o) pread(f, d, s, o)
+#define p_pwrite(f, d, s, o) pwrite(f, d, s, o)
 
 #endif

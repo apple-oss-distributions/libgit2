@@ -2,7 +2,7 @@
 #include "posix.h"
 #include "path.h"
 #include "submodule_helpers.h"
-#include "fileops.h"
+#include "futils.h"
 #include "iterator.h"
 
 static git_repository *g_repo = NULL;
@@ -34,7 +34,7 @@ static void rm_submodule(const char *name)
 	git_buf path = GIT_BUF_INIT;
 	cl_git_pass(git_buf_joinpath(&path, git_repository_workdir(g_repo), name));
 	cl_git_pass(git_futils_rmdir_r(path.ptr, NULL, GIT_RMDIR_REMOVE_FILES));
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 }
 
 static void add_submodule_to_index(const char *name)

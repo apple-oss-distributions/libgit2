@@ -40,7 +40,6 @@ typedef enum {
 	GIT_PKT_HAVE,
 	GIT_PKT_ACK,
 	GIT_PKT_NAK,
-	GIT_PKT_PACK__UNUSED,
 	GIT_PKT_COMMENT,
 	GIT_PKT_ERR,
 	GIT_PKT_DATA,
@@ -50,7 +49,7 @@ typedef enum {
 	GIT_PKT_UNPACK,
 } git_pkt_type;
 
-/* Used for multi_ack and mutli_ack_detailed */
+/* Used for multi_ack and multi_ack_detailed */
 enum git_ack_status {
 	GIT_ACK_NONE,
 	GIT_ACK_CONTINUE,
@@ -138,7 +137,7 @@ typedef struct {
 	git_transport parent;
 	git_remote *owner;
 	char *url;
-	git_cred_acquire_cb cred_acquire_cb;
+	git_credential_acquire_cb cred_acquire_cb;
 	void *cred_acquire_payload;
 	git_proxy_options proxy;
 	int direction;
@@ -154,7 +153,7 @@ typedef struct {
 	git_vector refs;
 	git_vector heads;
 	git_vector common;
-	git_atomic cancelled;
+	git_atomic32 cancelled;
 	packetsize_cb packetsize_cb;
 	void *packetsize_payload;
 	unsigned rpc : 1,
@@ -178,8 +177,8 @@ int git_smart__negotiate_fetch(
 int git_smart__download_pack(
 	git_transport *transport,
 	git_repository *repo,
-	git_transfer_progress *stats,
-	git_transfer_progress_cb progress_cb,
+	git_indexer_progress *stats,
+	git_indexer_progress_cb progress_cb,
 	void *progress_payload);
 
 /* smart.c */

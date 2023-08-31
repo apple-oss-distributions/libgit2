@@ -7,6 +7,9 @@
 #ifndef INCLUDE_sys_git_index_h__
 #define INCLUDE_sys_git_index_h__
 
+#include "git2/common.h"
+#include "git2/types.h"
+
 /**
  * @file git2/sys/index.h
  * @brief Low-level Git index manipulation routines
@@ -72,8 +75,9 @@ GIT_EXTERN(int) git_index_name_add(git_index *index,
  * Remove all filename conflict entries.
  *
  * @param index an existing index object
+ * @return 0 or an error code
  */
-GIT_EXTERN(void) git_index_name_clear(git_index *index);
+GIT_EXTERN(int) git_index_name_clear(git_index *index);
 
 /**@}*/
 
@@ -167,8 +171,9 @@ GIT_EXTERN(int) git_index_reuc_remove(git_index *index, size_t n);
  * Remove all resolve undo entries from the index
  *
  * @param index an existing index object
+ * @return 0 or an error code
  */
-GIT_EXTERN(void) git_index_reuc_clear(git_index *index);
+GIT_EXTERN(int) git_index_reuc_clear(git_index *index);
 
 /**@}*/
 

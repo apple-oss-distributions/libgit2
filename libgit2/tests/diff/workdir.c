@@ -145,12 +145,12 @@ void test_diff_workdir__to_index_with_assume_unchanged(void)
 
 	cl_assert((iep = git_index_get_bypath(idx, "modified_file", 0)) != NULL);
 	memcpy(&ie, iep, sizeof(ie));
-	ie.flags |= GIT_IDXENTRY_VALID;
+	ie.flags |= GIT_INDEX_ENTRY_VALID;
 	cl_git_pass(git_index_add(idx, &ie));
 
 	cl_assert((iep = git_index_get_bypath(idx, "file_deleted", 0)) != NULL);
 	memcpy(&ie, iep, sizeof(ie));
-	ie.flags |= GIT_IDXENTRY_VALID;
+	ie.flags |= GIT_INDEX_ENTRY_VALID;
 	cl_git_pass(git_index_add(idx, &ie));
 
 	cl_git_pass(git_index_write(idx));
@@ -749,7 +749,7 @@ void test_diff_workdir__filemode_changes_with_filemode_false(void)
 	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, NULL));
 
 	memset(&exp, 0, sizeof(exp));
-	cl_git_pass(git_diff_foreach(diff, 
+	cl_git_pass(git_diff_foreach(diff,
 		diff_file_cb, diff_binary_cb, diff_hunk_cb, diff_line_cb, &exp));
 
 	cl_assert_equal_i(0, exp.files);
@@ -1221,14 +1221,14 @@ void test_diff_workdir__checks_options_version(void)
 
 	opts.version = 0;
 	cl_git_fail(git_diff_tree_to_workdir(&diff, g_repo, NULL, &opts));
-	err = giterr_last();
-	cl_assert_equal_i(GITERR_INVALID, err->klass);
+	err = git_error_last();
+	cl_assert_equal_i(GIT_ERROR_INVALID, err->klass);
 
-	giterr_clear();
+	git_error_clear();
 	opts.version = 1024;
 	cl_git_fail(git_diff_tree_to_workdir(&diff, g_repo, NULL, &opts));
-	err = giterr_last();
-	cl_assert_equal_i(GITERR_INVALID, err->klass);
+	err = git_error_last();
+	cl_assert_equal_i(GIT_ERROR_INVALID, err->klass);
 }
 
 void test_diff_workdir__can_diff_empty_file(void)
@@ -1677,7 +1677,7 @@ void test_diff_workdir__patience_diff(void)
 	cl_assert_equal_s(expected_patience, buf.ptr);
 	git_buf_clear(&buf);
 
-	git_buf_free(&buf);
+	git_buf_dispose(&buf);
 	git_patch_free(patch);
 	git_diff_free(diff);
 }
@@ -1807,7 +1807,7 @@ void test_diff_workdir__can_update_index(void)
 		git_buf path = GIT_BUF_INIT;
 		cl_git_pass(git_buf_sets(&path, "status"));
 		cl_git_pass(git_path_direach(&path, 0, touch_file, NULL));
-		git_buf_free(&path);
+		git_buf_dispose(&path);
 	}
 
 	opts.flags |= GIT_DIFF_INCLUDE_IGNORED | GIT_DIFF_INCLUDE_UNTRACKED;
@@ -1876,9 +1876,9 @@ void test_diff_workdir__binary_detection(void)
 	git_buf b = GIT_BUF_INIT;
 	int i;
 	git_buf data[10] = {
-		{ "1234567890", 0, 0 },         /* 0 - all ascii text control */
-		{ "\xC3\x85\xC3\xBC\xE2\x80\xA0\x48\xC3\xB8\xCF\x80\xCE\xA9", 0, 0 },            /* 1 - UTF-8 multibyte text */
-		{ "\xEF\xBB\xBF\xC3\x9C\xE2\xA4\x92\xC6\x92\x38\xC2\xA3\xE2\x82\xAC", 0, 0 }, /* 2 - UTF-8 with BOM */
+		{ "1234567890", 0, 10 },         /* 0 - all ascii text control */
+		{ "\xC3\x85\xC3\xBC\xE2\x80\xA0\x48\xC3\xB8\xCF\x80\xCE\xA9", 0, 14 },            /* 1 - UTF-8 multibyte text */
+		{ "\xEF\xBB\xBF\xC3\x9C\xE2\xA4\x92\xC6\x92\x38\xC2\xA3\xE2\x82\xAC", 0, 16 }, /* 2 - UTF-8 with BOM */
 		{ STR999Z, 0, 1000 },           /* 3 - ASCII with NUL at 1000 */
 		{ STR3999Z, 0, 4000 },          /* 4 - ASCII with NUL at 4000 */
 		{ STR4000 STR3999Z "x", 0, 8001 }, /* 5 - ASCII with NUL at 8000 */
@@ -1910,7 +1910,7 @@ void test_diff_workdir__binary_detection(void)
 		cl_git_write2file(
 			b.ptr, data[i].ptr, data[i].size, O_WRONLY|O_TRUNC, 0664);
 	}
-	git_index_write(idx);
+	cl_git_pass(git_index_write(idx));
 
 	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, NULL));
 
@@ -1938,7 +1938,7 @@ void test_diff_workdir__binary_detection(void)
 
 		cl_git_write2file(b.ptr, "baseline\n", 9, O_WRONLY|O_TRUNC, 0664);
 	}
-	git_index_write(idx);
+	cl_git_pass(git_index_write(idx));
 
 	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, NULL));
 
@@ -1959,7 +1959,7 @@ void test_diff_workdir__binary_detection(void)
 	git_diff_free(diff);
 
 	git_index_free(idx);
-	git_buf_free(&b);
+	git_buf_dispose(&b);
 }
 
 void test_diff_workdir__to_index_conflicted(void) {
@@ -2016,7 +2016,7 @@ void test_diff_workdir__only_writes_index_when_necessary(void)
 
 	cl_git_pass(git_repository_index(&index, g_repo));
 	cl_git_pass(git_repository_head(&head, g_repo));
-	cl_git_pass(git_reference_peel(&head_object, head, GIT_OBJ_COMMIT));
+	cl_git_pass(git_reference_peel(&head_object, head, GIT_OBJECT_COMMIT));
 
 	cl_git_pass(git_reset(g_repo, head_object, GIT_RESET_HARD, NULL));
 
@@ -2050,7 +2050,7 @@ void test_diff_workdir__only_writes_index_when_necessary(void)
 	git_oid_cpy(&second, git_index_checksum(index));
 	cl_assert(!git_oid_equal(&first, &second));
 
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 	git_object_free(head_object);
 	git_reference_free(head);
 	git_index_free(index);
@@ -2112,7 +2112,7 @@ void test_diff_workdir__symlink_changed_on_non_symlink_platform(void)
 
 	g_repo = cl_git_sandbox_init("unsymlinked.git");
 
-	cl_git_pass(git_repository__cvar(&symlinks, g_repo, GIT_CVAR_SYMLINKS));
+	cl_git_pass(git_repository__configmap_lookup(&symlinks, g_repo, GIT_CONFIGMAP_SYMLINKS));
 
 	if (symlinks)
 		cl_skip();
@@ -2159,4 +2159,82 @@ void test_diff_workdir__symlink_changed_on_non_symlink_platform(void)
 
 	git_tree_free(tree);
 	git_vector_free(&pathlist);
+}
+
+void test_diff_workdir__order(void)
+{
+	git_diff_options opts = GIT_DIFF_OPTIONS_INIT;
+	git_buf patch = GIT_BUF_INIT;
+	git_oid tree_oid, blob_oid;
+	git_treebuilder *builder;
+	git_tree *tree;
+	git_diff *diff;
+
+	g_repo = cl_git_sandbox_init("empty_standard_repo");
+
+	/* Build tree with a single file "abc.txt" */
+	cl_git_pass(git_blob_create_from_buffer(&blob_oid, g_repo, "foo\n", 4));
+	cl_git_pass(git_treebuilder_new(&builder, g_repo, NULL));
+	cl_git_pass(git_treebuilder_insert(NULL, builder, "abc.txt", &blob_oid, GIT_FILEMODE_BLOB));
+	cl_git_pass(git_treebuilder_write(&tree_oid, builder));
+	cl_git_pass(git_tree_lookup(&tree, g_repo, &tree_oid));
+
+	/* Create a directory that sorts before and one that sorts after "abc.txt" */
+	cl_git_mkfile("empty_standard_repo/abc.txt", "bar\n");
+	cl_must_pass(p_mkdir("empty_standard_repo/abb", 0777));
+	cl_must_pass(p_mkdir("empty_standard_repo/abd", 0777));
+
+	opts.flags = GIT_DIFF_INCLUDE_UNTRACKED;
+	cl_git_pass(git_diff_tree_to_workdir(&diff, g_repo, tree, &opts));
+
+	cl_assert_equal_i(1, git_diff_num_deltas(diff));
+	cl_git_pass(git_diff_to_buf(&patch, diff, GIT_DIFF_FORMAT_PATCH));
+	cl_assert_equal_s(patch.ptr,
+		"diff --git a/abc.txt b/abc.txt\n"
+		"index 257cc56..5716ca5 100644\n"
+		"--- a/abc.txt\n"
+		"+++ b/abc.txt\n"
+		"@@ -1 +1 @@\n"
+		"-foo\n"
+		"+bar\n");
+
+	git_treebuilder_free(builder);
+	git_buf_dispose(&patch);
+	git_diff_free(diff);
+	git_tree_free(tree);
+}
+
+void test_diff_workdir__ignore_blank_lines(void)
+{
+	git_diff_options opts = GIT_DIFF_OPTIONS_INIT;
+	git_diff *diff;
+	git_patch *patch;
+	git_buf buf = GIT_BUF_INIT;
+
+	g_repo = cl_git_sandbox_init("rebase");
+	cl_git_rewritefile("rebase/gravy.txt", "GRAVY SOUP.\n\n\nGet eight pounds of coarse lean beef--wash it clean and lay it in your\n\npot, put in the same ingredients as for the shin soup, with the same\nquantity of water, and follow the process directed for that. Strain the\nsoup through a sieve, and serve it up clear, with nothing more than\ntoasted bread in it; two table-spoonsful of mushroom catsup will add a\nfine flavour to the soup!\n");
+
+	/* Perform the diff normally */
+	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
+	cl_git_pass(git_patch_from_diff(&patch, diff, 0));
+	cl_git_pass(git_patch_to_buf(&buf, patch));
+
+	cl_assert_equal_s("diff --git a/gravy.txt b/gravy.txt\nindex c4e6cca..3c617e6 100644\n--- a/gravy.txt\n+++ b/gravy.txt\n@@ -1,8 +1,10 @@\n GRAVY SOUP.\n \n+\n Get eight pounds of coarse lean beef--wash it clean and lay it in your\n+\n pot, put in the same ingredients as for the shin soup, with the same\n quantity of water, and follow the process directed for that. Strain the\n soup through a sieve, and serve it up clear, with nothing more than\n toasted bread in it; two table-spoonsful of mushroom catsup will add a\n-fine flavour to the soup.\n+fine flavour to the soup!\n", buf.ptr);
+
+	git_buf_dispose(&buf);
+	git_patch_free(patch);
+	git_diff_free(diff);
+
+	/* Perform the diff ignoring blank lines */
+	opts.flags |= GIT_DIFF_IGNORE_BLANK_LINES;
+
+	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
+	cl_git_pass(git_patch_from_diff(&patch, diff, 0));
+	cl_git_pass(git_patch_to_buf(&buf, patch));
+
+	cl_assert_equal_s("diff --git a/gravy.txt b/gravy.txt\nindex c4e6cca..3c617e6 100644\n--- a/gravy.txt\n+++ b/gravy.txt\n@@ -5,4 +7,4 @@ pot, put in the same ingredients as for the shin soup, with the same\n quantity of water, and follow the process directed for that. Strain the\n soup through a sieve, and serve it up clear, with nothing more than\n toasted bread in it; two table-spoonsful of mushroom catsup will add a\n-fine flavour to the soup.\n+fine flavour to the soup!\n", buf.ptr);
+
+	git_buf_dispose(&buf);
+	git_patch_free(patch);
+	git_diff_free(diff);
 }

@@ -24,7 +24,7 @@
 
 struct git_config {
 	git_refcount rc;
-	git_vector files;
+	git_vector backends;
 };
 
 extern int git_config__global_location(git_buf *buf);
@@ -33,19 +33,6 @@ extern int git_config_rename_section(
 	git_repository *repo,
 	const char *old_section_name,	/* eg "branch.dummy" */
 	const char *new_section_name);	/* NULL to drop the old section */
-
-/**
- * Create a configuration file backend for ondisk files
- *
- * These are the normal `.gitconfig` files that Core Git
- * processes. Note that you first have to add this file to a
- * configuration object before you can query it for configuration
- * variables.
- *
- * @param out the new backend
- * @param path where the config file is located
- */
-extern int git_config_file__ondisk(git_config_backend **out, const char *path);
 
 extern int git_config__normalize_name(const char *in, char **out);
 
@@ -79,18 +66,19 @@ extern int git_config__get_bool_force(
 extern int git_config__get_int_force(
 	const git_config *cfg, const char *key, int fallback_value);
 
-/* API for repository cvar-style lookups from config - not cached, but
- * uses cvar value maps and fallbacks
+/* API for repository configmap-style lookups from config - not cached, but
+ * uses configmap value maps and fallbacks
  */
-extern int git_config__cvar(
-	int *out, git_config *config, git_cvar_cached cvar);
+extern int git_config__configmap_lookup(
+	int *out, git_config *config, git_configmap_item item);
 
 /**
  * The opposite of git_config_lookup_map_value, we take an enum value
  * and map it to the string or bool value on the config.
  */
-int git_config_lookup_map_enum(git_cvar_t *type_out, const char **str_out,
-			       const git_cvar_map *maps, size_t map_n, int enum_val);
+int git_config_lookup_map_enum(git_configmap_t *type_out,
+	const char **str_out, const git_configmap *maps,
+	size_t map_n, int enum_val);
 
 /**
  * Unlock the backend with the highest priority

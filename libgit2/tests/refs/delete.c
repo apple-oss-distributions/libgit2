@@ -1,6 +1,6 @@
 #include "clar_libgit2.h"
 
-#include "fileops.h"
+#include "futils.h"
 #include "git2/reflog.h"
 #include "git2/refdb.h"
 #include "reflog.h"
@@ -27,7 +27,7 @@ void test_refs_delete__cleanup(void)
 
 void test_refs_delete__packed_loose(void)
 {
-   // deleting a ref which is both packed and loose should remove both tracks in the filesystem
+	/* deleting a ref which is both packed and loose should remove both tracks in the filesystem */
 	git_reference *looked_up_ref, *another_looked_up_ref;
 	git_buf temp_path = GIT_BUF_INIT;
 
@@ -52,12 +52,12 @@ void test_refs_delete__packed_loose(void)
 	cl_assert(!git_path_exists(temp_path.ptr));
 
 	git_reference_free(another_looked_up_ref);
-	git_buf_free(&temp_path);
+	git_buf_dispose(&temp_path);
 }
 
 void test_refs_delete__packed_only(void)
 {
-   // can delete a just packed reference
+	/* can delete a just packed reference */
 	git_reference *ref;
 	git_refdb *refdb;
 	git_oid id;
@@ -104,4 +104,15 @@ void test_refs_delete__remove(void)
 	cl_git_pass(git_reference_remove(g_repo, packed_test_head_name));
 
 	cl_git_fail(git_reference_lookup(&ref, g_repo, packed_test_head_name));
+}
+
+void test_refs_delete__head(void)
+{
+	git_reference *ref;
+
+	/* Check that it is not possible to delete HEAD */
+
+	cl_git_pass(git_reference_lookup(&ref, g_repo, "HEAD"));
+	cl_git_fail(git_reference_delete(ref));
+	git_reference_free(ref);
 }

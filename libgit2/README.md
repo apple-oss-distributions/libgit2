@@ -1,8 +1,12 @@
 libgit2 - the Git linkable library
 ==================================
 
-[![Azure Pipelines Build Status](https://dev.azure.com/libgit2/libgit2/_apis/build/status/libgit2)](https://dev.azure.com/libgit2/libgit2/_build/latest?definitionId=7)
-[![Coverity Scan Build Status](https://scan.coverity.com/projects/639/badge.svg)](https://scan.coverity.com/projects/639)
+| Build Status | |
+| ------------ | - |
+| **main** branch CI builds | [![CI Build](https://github.com/libgit2/libgit2/workflows/CI%20Build/badge.svg?event=push)](https://github.com/libgit2/libgit2/actions?query=workflow%3A%22CI+Build%22+event%3Apush) |
+| **v1.2 branch** CI builds | [![CI Build](https://github.com/libgit2/libgit2/workflows/CI%20Build/badge.svg?branch=maint%2Fv1.2&event=push)](https://github.com/libgit2/libgit2/actions?query=workflow%3A%22CI+Build%22+event%3Apush+branch%3Amaint%2Fv1.2) |
+| **v1.1 branch** CI builds | [![CI Build](https://github.com/libgit2/libgit2/workflows/CI%20Build/badge.svg?branch=maint%2Fv1.1&event=push)](https://github.com/libgit2/libgit2/actions?query=workflow%3A%22CI+Build%22+event%3Apush+branch%3Amaint%2Fv1.1) |
+| **Nightly** builds | [![Nightly Build](https://github.com/libgit2/libgit2/workflows/Nightly%20Build/badge.svg)](https://github.com/libgit2/libgit2/actions?query=workflow%3A%22Nightly+Build%22) [![Coverity Scan Status](https://scan.coverity.com/projects/639/badge.svg)](https://scan.coverity.com/projects/639) |
 
 `libgit2` is a portable, pure C implementation of the Git core methods
 provided as a linkable library with a solid API, allowing to build Git
@@ -26,6 +30,51 @@ with any kind of software without having to release its source code.
 Additionally, the example code has been released to the public domain (see the
 [separate license](examples/COPYING) for more information).
 
+Table of Contents
+=================
+
+* [Using libgit2](#using-libgit2)
+* [Quick Start](#quick-start)
+* [Getting Help](#getting-help)
+* [What It Can Do](#what-it-can-do)
+* [Optional dependencies](#optional-dependencies)
+* [Initialization](#initialization)
+* [Threading](#threading)
+* [Conventions](#conventions)
+* [Building libgit2 - Using CMake](#building-libgit2---using-cmake)
+    * [Building](#building)
+    * [Installation](#installation)
+    * [Advanced Usage](#advanced-usage)
+    * [Compiler and linker options](#compiler-and-linker-options)
+    * [MacOS X](#macos-x)
+    * [Android](#android)
+    * [MinGW](#mingw)
+* [Language Bindings](#language-bindings)
+* [How Can I Contribute?](#how-can-i-contribute)
+* [License](#license)
+
+Using libgit2
+=============
+
+Most of these instructions assume that you're writing an application
+in C and want to use libgit2 directly.  If you're _not_ using C,
+and you're writing in a different language or platform like .NET,
+Node.js, or Ruby, then there is probably a
+"[language binding](#language-bindings)" that you can use to take care
+of the messy tasks of calling into native code.
+
+But if you _do_ want to use libgit2 directly - because you're building
+an application in C - then you may be able use an existing binary.
+There are packages for the
+[vcpkg](https://github.com/Microsoft/vcpkg) and
+[conan](https://conan.io/center/libgit2)
+package managers.  And libgit2 is available in 
+[Homebrew](https://formulae.brew.sh/formula/libgit2) and most Linux
+distributions.
+
+However, these versions _may_ be outdated and we recommend using the
+latest version if possible.  Thankfully libgit2 is not hard to compile.
+
 Quick Start
 ===========
 
@@ -47,17 +96,18 @@ Quick Start
 2. Create the cmake build environment: `cmake ..`
 3. Build libgit2: `cmake --build .`
 
-Trouble with these steps?  Read `TROUBLESHOOTING.md`.  More detailed build
-guidance is available below.
+Trouble with these steps?  Read our [troubleshooting guide](docs/troubleshooting.md).
+More detailed build guidance is available below.
 
 Getting Help
 ============
 
-**Join us on Slack**
+**Chat with us**
 
-Visit [slack.libgit2.org](http://slack.libgit2.org/) to sign up, then join
-us in `#libgit2`.  If you prefer IRC, you can also point your client to our
-slack channel once you've registered.
+- via IRC: join [#libgit2](https://web.libera.chat/#libgit2) on
+  [libera](https://libera.chat).
+- via Slack: visit [slack.libgit2.org](http://slack.libgit2.org/) to sign up,
+  then join us in `#libgit2`
 
 **Getting Help**
 
@@ -77,9 +127,7 @@ We ask that you not open a GitHub Issue for help, only for bug reports.
 
 **Reporting Security Issues**
 
-In case you think to have found a security issue with libgit2, please do not
-open a public issue.  Instead, you can report the issue to the private mailing
-list [security@libgit2.com](mailto:security@libgit2.com).
+Please have a look at SECURITY.md.
 
 What It Can Do
 ==============
@@ -148,12 +196,12 @@ require assistance coordinating this, simply have the worker threads call
 Threading
 =========
 
-See [THREADING](THREADING.md) for information
+See [threading](docs/threading.md) for information
 
 Conventions
 ===========
 
-See [CONVENTIONS](CONVENTIONS.md) for an overview of the external
+See [conventions](docs/conventions.md) for an overview of the external
 and internal API/coding conventions we use.
 
 Building libgit2 - Using CMake
@@ -177,6 +225,8 @@ On most systems you can build the library using the following commands
 
 Alternatively you can point the CMake GUI tool to the CMakeLists.txt file and generate platform specific build project or IDE workspace.
 
+If you're not familiar with CMake, [a more detailed explanation](https://preshing.com/20170511/how-to-build-a-cmake-based-project/) may be helpful.
+
 Running Tests
 -------------
 
@@ -195,7 +245,7 @@ run the index tests:
     $ ./libgit2_clar -sindex
 
 To run a single test named `index::racy::diff`, which corresponds to the test
-function (`test_index_racy__diff`)[https://github.com/libgit2/libgit2/blob/master/tests/index/racy.c#L23]:
+function [`test_index_racy__diff`](https://github.com/libgit2/libgit2/blob/main/tests/index/racy.c#L23):
 
     $ ./libgit2_clar -sindex::racy::diff
 
@@ -205,7 +255,7 @@ applicable to your platform or is particularly expensive.
 
 **Note:** There should be _no_ failing tests when you build an unmodified
 source tree from a [release](https://github.com/libgit2/libgit2/releases),
-or from the [master branch](https://github.com/libgit2/libgit2/tree/master).
+or from the [main branch](https://github.com/libgit2/libgit2/tree/main).
 Please contact us or [open an issue](https://github.com/libgit2/libgit2/issues)
 if you see test failures.
 
@@ -224,13 +274,21 @@ For more advanced use or questions about CMake please read <https://cmake.org/Wi
 
 The following CMake variables are declared:
 
-- `BIN_INSTALL_DIR`: Where to install binaries to.
-- `LIB_INSTALL_DIR`: Where to install libraries to.
-- `INCLUDE_INSTALL_DIR`: Where to install headers to.
+- `CMAKE_INSTALL_BINDIR`: Where to install binaries to.
+- `CMAKE_INSTALL_LIBDIR`: Where to install libraries to.
+- `CMAKE_INSTALL_INCLUDEDIR`: Where to install headers to.
 - `BUILD_SHARED_LIBS`: Build libgit2 as a Shared Library (defaults to ON)
 - `BUILD_CLAR`: Build [Clar](https://github.com/vmg/clar)-based test suite (defaults to ON)
 - `THREADSAFE`: Build libgit2 with threading support (defaults to ON)
-- `STDCALL`: Build libgit2 as `stdcall`. Turn off for `cdecl` (Windows; defaults to ON)
+
+To list all build options and their current value, you can do the
+following:
+
+	# Create and set up a build directory
+	$ mkdir build
+	$ cmake ..
+	# List all build options and their values
+	$ cmake -L
 
 Compiler and linker options
 ---------------------------
@@ -273,6 +331,20 @@ with full path to the toolchain):
 Add `-DCMAKE_TOOLCHAIN_FILE={pathToToolchainFile}` to cmake command
 when configuring.
 
+MinGW
+-----
+
+If you want to build the library in MinGW environment with SSH support enabled,
+you may need to pass `-DCMAKE_LIBRARY_PATH="${MINGW_PREFIX}/${MINGW_CHOST}/lib/"` flag
+to CMake when configuring. This is because CMake cannot find the Win32 libraries in
+MinGW folders by default and you might see an error message stating that CMake
+could not resolve `ws2_32` library during configuration.
+
+Another option would be to install `msys2-w32api-runtime` package before configuring.
+This package installs the Win32 libraries into `/usr/lib` folder which is by default
+recognized as the library path by CMake. Please note though that this package is meant
+for MSYS subsystem which is different from MinGW.
+
 Language Bindings
 ==================================
 
@@ -286,6 +358,7 @@ Here are the bindings to libgit2 that are currently available:
     * dlibgit <https://github.com/s-ludwig/dlibgit>
 * Delphi
     * GitForDelphi <https://github.com/libgit2/GitForDelphi>
+    * libgit2-delphi <https://github.com/todaysoftware/libgit2-delphi>
 * Erlang
     * Geef <https://github.com/carlosmn/geef>
 * Go
@@ -298,8 +371,11 @@ Here are the bindings to libgit2 that are currently available:
     * hgit2 <https://github.com/jwiegley/gitlib>
 * Java
     * Jagged <https://github.com/ethomson/jagged>
+    * Git24j <https://github.com/git24j/git24j>
+* Javascript / WebAssembly ( browser and nodejs )
+    * WASM-git <https://github.com/petersalomonsen/wasm-git>
 * Julia
-    * LibGit2.jl <https://github.com/jakebolewski/LibGit2.jl>
+    * LibGit2.jl <https://github.com/JuliaLang/julia/tree/master/stdlib/LibGit2>
 * Lua
     * luagit2 <https://github.com/libgit2/luagit2>
 * .NET
@@ -321,11 +397,12 @@ Here are the bindings to libgit2 that are currently available:
 * Python
     * pygit2 <https://github.com/libgit2/pygit2>
 * R
+    * gert <https://docs.ropensci.org/gert>
     * git2r <https://github.com/ropensci/git2r>
 * Ruby
     * Rugged <https://github.com/libgit2/rugged>
 * Rust
-    * git2-rs <https://github.com/alexcrichton/git2-rs>
+    * git2-rs <https://github.com/rust-lang/git2-rs>
 * Swift
     * SwiftGit2 <https://github.com/SwiftGit2/SwiftGit2>
 * Vala
@@ -342,10 +419,10 @@ We welcome new contributors!  We have a number of issues marked as
 and
 ["easy fix"](https://github.com/libgit2/libgit2/issues?utf8=✓&q=is%3Aissue+is%3Aopen+label%3A%22easy+fix%22)
 that are good places to jump in and get started.  There's much more detailed
-information in our list of [outstanding projects](PROJECTS.md).
+information in our list of [outstanding projects](docs/projects.md).
 
-Please be sure to check the [contribution guidelines](CONTRIBUTING.md) to
-understand our workflow, and the libgit2 [coding conventions](CONVENTIONS.md).
+Please be sure to check the [contribution guidelines](docs/contributing.md) to
+understand our workflow, and the libgit2 [coding conventions](docs/conventions.md).
 
 License
 ==================================

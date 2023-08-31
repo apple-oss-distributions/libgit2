@@ -1,6 +1,6 @@
 #include "clar_libgit2.h"
 #include "buffer.h"
-#include "fileops.h"
+#include "futils.h"
 
 static git_config *cfg;
 static git_buf buf;
@@ -14,7 +14,7 @@ void test_config_include__initialize(void)
 void test_config_include__cleanup(void)
 {
     git_config_free(cfg);
-    git_buf_free(&buf);
+    git_buf_dispose(&buf);
 }
 
 void test_config_include__relative(void)
@@ -30,7 +30,7 @@ void test_config_include__absolute(void)
 	cl_git_pass(git_buf_printf(&buf, "[include]\npath = %s/config-included", cl_fixture("config")));
 
 	cl_git_mkfile("config-include-absolute", git_buf_cstr(&buf));
-	git_buf_free(&buf);
+	git_buf_dispose(&buf);
 	cl_git_pass(git_config_open_ondisk(&cfg, "config-include-absolute"));
 
 	cl_git_pass(git_config_get_string_buf(&buf, cfg, "foo.bar.baz"));
@@ -101,9 +101,9 @@ void test_config_include__missing(void)
 {
 	cl_git_mkfile("including", "[include]\npath = nonexistentfile\n[foo]\nbar = baz");
 
-	giterr_clear();
+	git_error_clear();
 	cl_git_pass(git_config_open_ondisk(&cfg, "including"));
-	cl_assert(giterr_last() == NULL);
+	cl_assert(git_error_last() == NULL);
 	cl_git_pass(git_config_get_string_buf(&buf, cfg, "foo.bar"));
 	cl_assert_equal_s("baz", git_buf_cstr(&buf));
 
@@ -115,9 +115,9 @@ void test_config_include__missing_homedir(void)
 	cl_git_pass(git_libgit2_opts(GIT_OPT_SET_SEARCH_PATH, GIT_CONFIG_LEVEL_GLOBAL, cl_fixture("config")));
 	cl_git_mkfile("including", "[include]\npath = ~/.nonexistentfile\n[foo]\nbar = baz");
 
-	giterr_clear();
+	git_error_clear();
 	cl_git_pass(git_config_open_ondisk(&cfg, "including"));
-	cl_assert(giterr_last() == NULL);
+	cl_assert(git_error_last() == NULL);
 	cl_git_pass(git_config_get_string_buf(&buf, cfg, "foo.bar"));
 	cl_assert_equal_s("baz", git_buf_cstr(&buf));
 
@@ -178,6 +178,30 @@ void test_config_include__rewriting_include_refreshes_values(void)
 	cl_git_pass(p_unlink("second"));
 }
 
+void test_config_include__rewriting_include_twice_refreshes_values(void)
+{
+	cl_git_mkfile("top-level", "[include]\npath = included");
+	cl_git_mkfile("included", "[foo]\nbar = first-value");
+
+	cl_git_pass(git_config_open_ondisk(&cfg, "top-level"));
+	cl_git_pass(git_config_get_string_buf(&buf, cfg, "foo.bar"));
+
+	git_buf_clear(&buf);
+	cl_git_mkfile("included", "[foo]\nother = value2");
+	cl_git_fail(git_config_get_string_buf(&buf, cfg, "foo.bar"));
+	cl_git_pass(git_config_get_string_buf(&buf, cfg, "foo.other"));
+	cl_assert_equal_s(buf.ptr, "value2");
+
+	git_buf_clear(&buf);
+	cl_git_mkfile("included", "[foo]\nanother = bar");
+	cl_git_fail(git_config_get_string_buf(&buf, cfg, "foo.other"));
+	cl_git_pass(git_config_get_string_buf(&buf, cfg, "foo.another"));
+	cl_assert_equal_s(buf.ptr, "bar");
+
+	cl_git_pass(p_unlink("top-level"));
+	cl_git_pass(p_unlink("included"));
+}
+
 void test_config_include__included_variables_cannot_be_deleted(void)
 {
 	cl_git_mkfile("top-level", "[include]\npath = included\n");
@@ -198,6 +222,36 @@ void test_config_include__included_variables_cannot_be_modified(void)
 
 	cl_git_pass(git_config_open_ondisk(&cfg, "top-level"));
 	cl_git_fail(git_config_set_string(cfg, "foo.bar", "other-value"));
+
+	cl_git_pass(p_unlink("top-level"));
+	cl_git_pass(p_unlink("included"));
+}
+
+void test_config_include__variables_in_included_override_including(void)
+{
+	int i;
+
+	cl_git_mkfile("top-level", "[foo]\nbar = 1\n[include]\npath = included");
+	cl_git_mkfile("included", "[foo]\nbar = 2");
+
+	cl_git_pass(git_config_open_ondisk(&cfg, "top-level"));
+	cl_git_pass(git_config_get_int32(&i, cfg, "foo.bar"));
+	cl_assert_equal_i(i, 2);
+
+	cl_git_pass(p_unlink("top-level"));
+	cl_git_pass(p_unlink("included"));
+}
+
+void test_config_include__variables_in_including_override_included(void)
+{
+	int i;
+
+	cl_git_mkfile("top-level", "[include]\npath = included\n[foo]\nbar = 1");
+	cl_git_mkfile("included", "[foo]\nbar = 2");
+
+	cl_git_pass(git_config_open_ondisk(&cfg, "top-level"));
+	cl_git_pass(git_config_get_int32(&i, cfg, "foo.bar"));
+	cl_assert_equal_i(i, 1);
 
 	cl_git_pass(p_unlink("top-level"));
 	cl_git_pass(p_unlink("included"));

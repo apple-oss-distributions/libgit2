@@ -1,7 +1,7 @@
 #include "clar_libgit2.h"
 #include "iterator.h"
 #include "repository.h"
-#include "fileops.h"
+#include "futils.h"
 #include "tree.h"
 #include "../submodule/submodule_helpers.h"
 #include "../diff/diff_helpers.h"
@@ -653,7 +653,7 @@ static void build_test_tree(
 	cl_git_pass(git_treebuilder_write(out, builder));
 
 	git_treebuilder_free(builder);
-	git_buf_free(&name);
+	git_buf_dispose(&name);
 }
 
 void test_iterator_tree__case_conflicts_0(void)

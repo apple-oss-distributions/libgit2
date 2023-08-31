@@ -25,7 +25,7 @@ void git_signature_free(git_signature *sig)
 
 static int signature_error(const char *msg)
 {
-	giterr_set(GITERR_INVALID, "failed to parse signature - %s", msg);
+	git_error_set(GIT_ERROR_INVALID, "failed to parse signature - %s", msg);
 	return -1;
 }
 
@@ -65,7 +65,8 @@ int git_signature_new(git_signature **sig_out, const char *name, const char *ema
 {
 	git_signature *p = NULL;
 
-	assert(name && email);
+	GIT_ASSERT_ARG(name);
+	GIT_ASSERT_ARG(email);
 
 	*sig_out = NULL;
 
@@ -76,12 +77,12 @@ int git_signature_new(git_signature **sig_out, const char *name, const char *ema
 	}
 
 	p = git__calloc(1, sizeof(git_signature));
-	GITERR_CHECK_ALLOC(p);
+	GIT_ERROR_CHECK_ALLOC(p);
 
 	p->name = extract_trimmed(name, strlen(name));
-	GITERR_CHECK_ALLOC(p->name);
+	GIT_ERROR_CHECK_ALLOC(p->name);
 	p->email = extract_trimmed(email, strlen(email));
-	GITERR_CHECK_ALLOC(p->email);
+	GIT_ERROR_CHECK_ALLOC(p->email);
 
 	if (p->name[0] == '\0' || p->email[0] == '\0') {
 		git_signature_free(p);
@@ -104,13 +105,13 @@ int git_signature_dup(git_signature **dest, const git_signature *source)
 		return 0;
 
 	signature = git__calloc(1, sizeof(git_signature));
-	GITERR_CHECK_ALLOC(signature);
+	GIT_ERROR_CHECK_ALLOC(signature);
 
 	signature->name = git__strdup(source->name);
-	GITERR_CHECK_ALLOC(signature->name);
+	GIT_ERROR_CHECK_ALLOC(signature->name);
 
 	signature->email = git__strdup(source->email);
-	GITERR_CHECK_ALLOC(signature->email);
+	GIT_ERROR_CHECK_ALLOC(signature->email);
 
 	signature->when.time = source->when.time;
 	signature->when.offset = source->when.offset;
@@ -129,13 +130,13 @@ int git_signature__pdup(git_signature **dest, const git_signature *source, git_p
 		return 0;
 
 	signature = git_pool_mallocz(pool, sizeof(git_signature));
-	GITERR_CHECK_ALLOC(signature);
+	GIT_ERROR_CHECK_ALLOC(signature);
 
 	signature->name = git_pool_strdup(pool, source->name);
-	GITERR_CHECK_ALLOC(signature->name);
+	GIT_ERROR_CHECK_ALLOC(signature->name);
 
 	signature->email = git_pool_strdup(pool, source->email);
-	GITERR_CHECK_ALLOC(signature->email);
+	GIT_ERROR_CHECK_ALLOC(signature->email);
 
 	signature->when.time = source->when.time;
 	signature->when.offset = source->when.offset;
@@ -248,7 +249,7 @@ int git_signature__parse(git_signature *sig, const char **buffer_out,
 
 			if ((tz_start[0] != '-' && tz_start[0] != '+') ||
 			    git__strntol32(&offset, tz_start + 1,
-					   buffer_end - tz_start + 1, &tz_end, 10) < 0) {
+					   buffer_end - tz_start - 1, &tz_end, 10) < 0) {
 				/* malformed timezone, just assume it's zero */
 				offset = 0;
 			}
@@ -279,12 +280,13 @@ int git_signature_from_buffer(git_signature **out, const char *buf)
 	const char *buf_end;
 	int error;
 
-	assert(out && buf);
+	GIT_ASSERT_ARG(out);
+	GIT_ASSERT_ARG(buf);
 
 	*out = NULL;
 
 	sig = git__calloc(1, sizeof(git_signature));
-	GITERR_CHECK_ALLOC(sig);
+	GIT_ERROR_CHECK_ALLOC(sig);
 
 	buf_end = buf + strlen(buf);
 	error = git_signature__parse(sig, &buf, buf_end, NULL, '\0');
@@ -302,8 +304,6 @@ void git_signature__writebuf(git_buf *buf, const char *header, const git_signatu
 	int offset, hours, mins;
 	char sign;
 
-	assert(buf && sig);
-
 	offset = sig->when.offset;
 	sign = (sig->when.offset < 0 || sig->when.sign == '-') ? '-' : '+';
 
@@ -320,7 +320,8 @@ void git_signature__writebuf(git_buf *buf, const char *header, const git_signatu
 
 bool git_signature__equal(const git_signature *one, const git_signature *two)
 {
-	assert(one && two);
+	GIT_ASSERT_ARG(one);
+	GIT_ASSERT_ARG(two);
 
 	return
 		git__strcmp(one->name, two->name) == 0 &&

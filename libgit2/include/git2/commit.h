@@ -173,6 +173,34 @@ GIT_EXTERN(const git_signature *) git_commit_committer(const git_commit *commit)
 GIT_EXTERN(const git_signature *) git_commit_author(const git_commit *commit);
 
 /**
+ * Get the committer of a commit, using the mailmap to map names and email
+ * addresses to canonical real names and email addresses.
+ *
+ * Call `git_signature_free` to free the signature.
+ *
+ * @param out a pointer to store the resolved signature.
+ * @param commit a previously loaded commit.
+ * @param mailmap the mailmap to resolve with. (may be NULL)
+ * @return 0 or an error code
+ */
+GIT_EXTERN(int) git_commit_committer_with_mailmap(
+	git_signature **out, const git_commit *commit, const git_mailmap *mailmap);
+
+/**
+ * Get the author of a commit, using the mailmap to map names and email
+ * addresses to canonical real names and email addresses.
+ *
+ * Call `git_signature_free` to free the signature.
+ *
+ * @param out a pointer to store the resolved signature.
+ * @param commit a previously loaded commit.
+ * @param mailmap the mailmap to resolve with. (may be NULL)
+ * @return 0 or an error code
+ */
+GIT_EXTERN(int) git_commit_author_with_mailmap(
+	git_signature **out, const git_commit *commit, const git_mailmap *mailmap);
+
+/**
  * Get the full raw text of the commit header.
  *
  * @param commit a previously loaded commit
@@ -268,8 +296,8 @@ GIT_EXTERN(int) git_commit_header_field(git_buf *out, const git_commit *commit, 
  * Extract the signature from a commit
  *
  * If the id is not for a commit, the error class will be
- * `GITERR_INVALID`. If the commit does not have a signature, the
- * error class will be `GITERR_OBJECT`.
+ * `GIT_ERROR_INVALID`. If the commit does not have a signature, the
+ * error class will be `GIT_ERROR_OBJECT`.
  *
  * @param signature the signature block; existing content will be
  * overwritten
@@ -452,7 +480,8 @@ GIT_EXTERN(int) git_commit_create_buffer(
  *
  * @param out the resulting commit id
  * @param commit_content the content of the unsigned commit object
- * @param signature the signature to add to the commit
+ * @param signature the signature to add to the commit. Leave `NULL`
+ * to create a commit without adding a signature field.
  * @param signature_field which header field should contain this
  * signature. Leave `NULL` for the default of "gpgsig"
  * @return 0 or an error code
@@ -472,6 +501,43 @@ GIT_EXTERN(int) git_commit_create_with_signature(
  * @param source Original commit to copy
  */
 GIT_EXTERN(int) git_commit_dup(git_commit **out, git_commit *source);
+
+/**
+ * Commit creation callback: used when a function is going to create
+ * commits (for example, in `git_rebase_commit`) to allow callers to
+ * override the commit creation behavior.  For example, users may
+ * wish to sign commits by providing this information to
+ * `git_commit_create_buffer`, signing that buffer, then calling
+ * `git_commit_create_with_signature`.  The resultant commit id
+ * should be set in the `out` object id parameter.
+ *
+ * @param out pointer that this callback will populate with the object
+ *            id of the commit that is created
+ * @param author the author name and time of the commit
+ * @param committer the committer name and time of the commit
+ * @param message_encoding the encoding of the given message, or NULL
+ *                         to assume UTF8
+ * @param message the commit message
+ * @param tree the tree to be committed
+ * @param parent_count the number of parents for this commit
+ * @param parents the commit parents
+ * @param payload the payload pointer in the rebase options
+ * @return 0 if this callback has created the commit and populated the out
+ *         parameter, GIT_PASSTHROUGH if the callback has not created a
+ *         commit and wants the calling function to create the commit as
+ *         if no callback had been specified, any other value to stop
+ *         and return a failure
+ */
+typedef int (*git_commit_create_cb)(
+	git_oid *out,
+	const git_signature *author,
+	const git_signature *committer,
+	const char *message_encoding,
+	const char *message,
+	const git_tree *tree,
+	size_t parent_count,
+	const git_commit *parents[],
+	void *payload);
 
 /** @} */
 GIT_END_DECL

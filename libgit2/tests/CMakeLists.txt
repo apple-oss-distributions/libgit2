@@ -1,3 +1,4 @@
+SET(Python_ADDITIONAL_VERSIONS 3 2.7)
 FIND_PACKAGE(PythonInterp)
 
 IF(NOT PYTHONINTERP_FOUND)
@@ -9,7 +10,11 @@ SET(CLAR_FIXTURES "${CMAKE_CURRENT_SOURCE_DIR}/resources/")
 SET(CLAR_PATH "${CMAKE_CURRENT_SOURCE_DIR}")
 ADD_DEFINITIONS(-DCLAR_FIXTURE_PATH=\"${CLAR_FIXTURES}\")
 ADD_DEFINITIONS(-DCLAR_TMPDIR=\"libgit2_tests\")
+ADD_DEFINITIONS(-DCLAR_WIN32_LONGPATHS)
 ADD_DEFINITIONS(-D_FILE_OFFSET_BITS=64)
+
+# Ensure that we do not use deprecated functions internally
+ADD_DEFINITIONS(-DGIT_DEPRECATE_HARD)
 
 INCLUDE_DIRECTORIES(${CLAR_PATH} ${libgit2_BINARY_DIR}/src)
 FILE(GLOB_RECURSE SRC_TEST ${CLAR_PATH}/*/*.c ${CLAR_PATH}/*/*.h)
@@ -32,17 +37,14 @@ SET_SOURCE_FILES_PROPERTIES(
 	PROPERTIES OBJECT_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/clar.suite)
 
 INCLUDE_DIRECTORIES(${LIBGIT2_INCLUDES})
+INCLUDE_DIRECTORIES(SYSTEM ${LIBGIT2_SYSTEM_INCLUDES})
 
 ADD_EXECUTABLE(libgit2_clar ${SRC_CLAR} ${SRC_TEST} ${LIBGIT2_OBJECTS})
 
+SET_TARGET_PROPERTIES(libgit2_clar PROPERTIES C_STANDARD 90)
 SET_TARGET_PROPERTIES(libgit2_clar PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${libgit2_BINARY_DIR})
 
-IF (${CMAKE_VERSION} VERSION_LESS 2.8.12)
-	# Already handled by a global INCLUDE_DIRECTORY()
-ELSE()
-	TARGET_INCLUDE_DIRECTORIES(libgit2_clar PRIVATE ../src PUBLIC ../include)
-ENDIF()
-
+TARGET_INCLUDE_DIRECTORIES(libgit2_clar PRIVATE ../src PUBLIC ../include)
 TARGET_LINK_LIBRARIES(libgit2_clar ${LIBGIT2_LIBS})
 IDE_SPLIT_SOURCES(libgit2_clar)
 
@@ -52,8 +54,20 @@ IF (MSVC_IDE)
 	SET_SOURCE_FILES_PROPERTIES("precompiled.c" COMPILE_FLAGS "/Ycprecompiled.h")
 ENDIF ()
 
-ADD_TEST(offline   "${libgit2_BINARY_DIR}/libgit2_clar" -v -xonline)
-ADD_TEST(online    "${libgit2_BINARY_DIR}/libgit2_clar" -v -sonline)
-ADD_TEST(gitdaemon "${libgit2_BINARY_DIR}/libgit2_clar" -v -sonline::push)
-ADD_TEST(ssh       "${libgit2_BINARY_DIR}/libgit2_clar" -v -sonline::push -sonline::clone::ssh_cert -sonline::clone::ssh_with_paths)
-ADD_TEST(proxy     "${libgit2_BINARY_DIR}/libgit2_clar" -v -sonline::clone::proxy_credentials_in_url -sonline::clone::proxy_credentials_request)
+FUNCTION(ADD_CLAR_TEST name)
+	IF (NOT USE_LEAK_CHECKER STREQUAL "OFF")
+		ADD_TEST(${name} "${libgit2_SOURCE_DIR}/script/${USE_LEAK_CHECKER}.sh" "${libgit2_BINARY_DIR}/libgit2_clar" ${ARGN})
+	ELSE()
+		ADD_TEST(${name} "${libgit2_BINARY_DIR}/libgit2_clar" ${ARGN})
+	ENDIF()
+ENDFUNCTION(ADD_CLAR_TEST)
+
+ADD_CLAR_TEST(offline             -v -xonline)
+ADD_CLAR_TEST(invasive            -v -score::ftruncate -sfilter::stream::bigfile -sodb::largefiles -siterator::workdir::filesystem_gunk -srepo::init -srepo::init::at_filesystem_root)
+ADD_CLAR_TEST(online              -v -sonline -xonline::customcert)
+ADD_CLAR_TEST(online_customcert   -v -sonline::customcert)
+ADD_CLAR_TEST(gitdaemon           -v -sonline::push)
+ADD_CLAR_TEST(ssh                 -v -sonline::push -sonline::clone::ssh_cert -sonline::clone::ssh_with_paths -sonline::clone::path_whitespace_ssh)
+ADD_CLAR_TEST(proxy               -v -sonline::clone::proxy)
+ADD_CLAR_TEST(auth_clone          -v -sonline::clone::cred)
+ADD_CLAR_TEST(auth_clone_and_push -v -sonline::clone::push -sonline::push)

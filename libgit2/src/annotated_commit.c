@@ -26,12 +26,13 @@ static int annotated_commit_init(
 	git_annotated_commit *annotated_commit;
 	int error = 0;
 
-	assert(out && commit);
+	GIT_ASSERT_ARG(out);
+	GIT_ASSERT_ARG(commit);
 
 	*out = NULL;
 
 	annotated_commit = git__calloc(1, sizeof(git_annotated_commit));
-	GITERR_CHECK_ALLOC(annotated_commit);
+	GIT_ERROR_CHECK_ALLOC(annotated_commit);
 
 	annotated_commit->type = GIT_ANNOTATED_COMMIT_REAL;
 
@@ -45,7 +46,7 @@ static int annotated_commit_init(
 		description = annotated_commit->id_str;
 
 	annotated_commit->description = git__strdup(description);
-	GITERR_CHECK_ALLOC(annotated_commit->description);
+	GIT_ERROR_CHECK_ALLOC(annotated_commit->description);
 
 done:
 	if (!error)
@@ -63,7 +64,9 @@ static int annotated_commit_init_from_id(
 	git_commit *commit = NULL;
 	int error = 0;
 
-	assert(out && repo && id);
+	GIT_ASSERT_ARG(out);
+	GIT_ASSERT_ARG(repo);
+	GIT_ASSERT_ARG(id);
 
 	*out = NULL;
 
@@ -100,12 +103,14 @@ int git_annotated_commit_from_revspec(
 	git_object *obj, *commit;
 	int error;
 
-	assert(out && repo && revspec);
+	GIT_ASSERT_ARG(out);
+	GIT_ASSERT_ARG(repo);
+	GIT_ASSERT_ARG(revspec);
 
 	if ((error = git_revparse_single(&obj, repo, revspec)) < 0)
 		return error;
 
-	if ((error = git_object_peel(&commit, obj, GIT_OBJ_COMMIT))) {
+	if ((error = git_object_peel(&commit, obj, GIT_OBJECT_COMMIT))) {
 		git_object_free(obj);
 		return error;
 	}
@@ -123,27 +128,29 @@ int git_annotated_commit_from_ref(
 	git_repository *repo,
 	const git_reference *ref)
 {
-	git_reference *resolved;
+	git_object *peeled;
 	int error = 0;
 
-	assert(out && repo && ref);
+	GIT_ASSERT_ARG(out);
+	GIT_ASSERT_ARG(repo);
+	GIT_ASSERT_ARG(ref);
 
 	*out = NULL;
 
-	if ((error = git_reference_resolve(&resolved, ref)) < 0)
+	if ((error = git_reference_peel(&peeled, ref, GIT_OBJECT_COMMIT)) < 0)
 		return error;
-	
+
 	error = annotated_commit_init_from_id(out,
 		repo,
-		git_reference_target(resolved),
+		git_object_id(peeled),
 		git_reference_name(ref));
 
 	if (!error) {
 		(*out)->ref_name = git__strdup(git_reference_name(ref));
-		GITERR_CHECK_ALLOC((*out)->ref_name);
+		GIT_ERROR_CHECK_ALLOC((*out)->ref_name);
 	}
 
-	git_reference_free(resolved);
+	git_object_free(peeled);
 	return error;
 }
 
@@ -154,11 +161,12 @@ int git_annotated_commit_from_head(
 	git_reference *head;
 	int error;
 
-	assert(out && repo);
+	GIT_ASSERT_ARG(out);
+	GIT_ASSERT_ARG(repo);
 
 	*out = NULL;
 
-    if ((error = git_reference_lookup(&head, repo, GIT_HEAD_FILE)) < 0)
+	if ((error = git_reference_lookup(&head, repo, GIT_HEAD_FILE)) < 0)
 		return -1;
 
 	error = git_annotated_commit_from_ref(out, repo, head);
@@ -174,16 +182,20 @@ int git_annotated_commit_from_fetchhead(
 	const char *remote_url,
 	const git_oid *id)
 {
-	assert(repo && id && branch_name && remote_url);
+	GIT_ASSERT_ARG(out);
+	GIT_ASSERT_ARG(repo);
+	GIT_ASSERT_ARG(branch_name);
+	GIT_ASSERT_ARG(remote_url);
+	GIT_ASSERT_ARG(id);
 
 	if (annotated_commit_init_from_id(out, repo, id, branch_name) < 0)
 		return -1;
 
 	(*out)->ref_name = git__strdup(branch_name);
-	GITERR_CHECK_ALLOC((*out)->ref_name);
+	GIT_ERROR_CHECK_ALLOC((*out)->ref_name);
 
 	(*out)->remote_url = git__strdup(remote_url);
-	GITERR_CHECK_ALLOC((*out)->remote_url);
+	GIT_ERROR_CHECK_ALLOC((*out)->remote_url);
 
 	return 0;
 }
@@ -192,8 +204,15 @@ int git_annotated_commit_from_fetchhead(
 const git_oid *git_annotated_commit_id(
 	const git_annotated_commit *annotated_commit)
 {
-	assert(annotated_commit);
+	GIT_ASSERT_ARG_WITH_RETVAL(annotated_commit, NULL);
 	return git_commit_id(annotated_commit->commit);
+}
+
+const char *git_annotated_commit_ref(
+	const git_annotated_commit *annotated_commit)
+{
+	GIT_ASSERT_ARG_WITH_RETVAL(annotated_commit, NULL);
+	return annotated_commit->ref_name;
 }
 
 void git_annotated_commit_free(git_annotated_commit *annotated_commit)

@@ -21,10 +21,7 @@
 #endif
 
 #if defined(_MSC_VER) && _MSC_VER < 1800
- GIT_BEGIN_DECL
-# include "inttypes.h"
- GIT_END_DECL
-/** This check is needed for importing this file in an iOS/OS X framework throws an error in Xcode otherwise.*/
+# include <stdint.h>
 #elif !defined(__CLANG_INTTYPES_H)
 # include <inttypes.h>
 #endif
@@ -43,9 +40,28 @@ typedef size_t size_t;
 			 __attribute__((visibility("default"))) \
 			 type
 #elif defined(_MSC_VER)
-# define GIT_EXTERN(type) __declspec(dllexport) type
+# define GIT_EXTERN(type) __declspec(dllexport) type __cdecl
 #else
 # define GIT_EXTERN(type) extern type
+#endif
+
+/** Declare a callback function for application use. */
+#if defined(_MSC_VER)
+# define GIT_CALLBACK(name) (__cdecl *name)
+#else
+# define GIT_CALLBACK(name) (*name)
+#endif
+
+/** Declare a function as deprecated. */
+#if defined(__GNUC__)
+# define GIT_DEPRECATED(func) \
+			 __attribute__((deprecated)) \
+			 __attribute__((used)) \
+			 func
+#elif defined(_MSC_VER)
+# define GIT_DEPRECATED(func) __declspec(deprecated) func
+#else
+# define GIT_DEPRECATED(func) func
 #endif
 
 /** Declare a function's takes printf style arguments. */
@@ -75,10 +91,10 @@ GIT_BEGIN_DECL
 
 /**
  * The separator used in path list strings (ie like in the PATH
- * environment variable). A semi-colon ";" is used on Windows, and
- * a colon ":" for all other systems.
+ * environment variable). A semi-colon ";" is used on Windows and
+ * AmigaOS, and a colon ":" for all other systems.
  */
-#ifdef GIT_WIN32
+#if defined(GIT_WIN32) || defined(AMIGA)
 #define GIT_PATH_LIST_SEPARATOR ';'
 #else
 #define GIT_PATH_LIST_SEPARATOR ':'
@@ -101,8 +117,9 @@ GIT_BEGIN_DECL
  * @param major Store the major version number
  * @param minor Store the minor version number
  * @param rev Store the revision (patch) number
+ * @return 0 on success or an error code on failure
  */
-GIT_EXTERN(void) git_libgit2_version(int *major, int *minor, int *rev);
+GIT_EXTERN(int) git_libgit2_version(int *major, int *minor, int *rev);
 
 /**
  * Combinations of these values describe the features with which libgit2
@@ -183,6 +200,18 @@ typedef enum {
 	GIT_OPT_GET_WINDOWS_SHAREMODE,
 	GIT_OPT_SET_WINDOWS_SHAREMODE,
 	GIT_OPT_ENABLE_STRICT_HASH_VERIFICATION,
+	GIT_OPT_SET_ALLOCATOR,
+	GIT_OPT_ENABLE_UNSAVED_INDEX_SAFETY,
+	GIT_OPT_GET_PACK_MAX_OBJECTS,
+	GIT_OPT_SET_PACK_MAX_OBJECTS,
+	GIT_OPT_DISABLE_PACK_KEEP_FILE_CHECKS,
+	GIT_OPT_ENABLE_HTTP_EXPECT_CONTINUE,
+	GIT_OPT_GET_MWINDOW_FILE_LIMIT,
+	GIT_OPT_SET_MWINDOW_FILE_LIMIT,
+	GIT_OPT_SET_ODB_PACKED_PRIORITY,
+	GIT_OPT_SET_ODB_LOOSE_PRIORITY,
+	GIT_OPT_GET_EXTENSIONS,
+	GIT_OPT_SET_EXTENSIONS
 } git_libgit2_opt_t;
 
 /**
@@ -204,8 +233,18 @@ typedef enum {
  *
  *	* opts(GIT_OPT_SET_MWINDOW_MAPPED_LIMIT, size_t):
  *
- *		>Set the maximum amount of memory that can be mapped at any time
- *		by the library
+ *		> Set the maximum amount of memory that can be mapped at any time
+ *		> by the library
+ *
+ *	* opts(GIT_OPT_GET_MWINDOW_FILE_LIMIT, size_t *):
+ *
+ *		> Get the maximum number of files that will be mapped at any time by the
+ *		> library
+ *
+ *	* opts(GIT_OPT_SET_MWINDOW_FILE_LIMIT, size_t):
+ *
+ *		> Set the maximum number of files that can be mapped at any time
+ *		> by the library. The default (0) is unlimited.
  *
  *	* opts(GIT_OPT_GET_SEARCH_PATH, int level, git_buf *buf)
  *
@@ -228,13 +267,13 @@ typedef enum {
  *		>   `GIT_CONFIG_LEVEL_GLOBAL`, `GIT_CONFIG_LEVEL_XDG`, or
  *		>   `GIT_CONFIG_LEVEL_PROGRAMDATA`.
  *
- *	* opts(GIT_OPT_SET_CACHE_OBJECT_LIMIT, git_otype type, size_t size)
+ *	* opts(GIT_OPT_SET_CACHE_OBJECT_LIMIT, git_object_t type, size_t size)
  *
  *		> Set the maximum data size for the given type of object to be
  *		> considered eligible for caching in memory.  Setting to value to
  *		> zero means that that type of object will not be cached.
- *		> Defaults to 0 for GIT_OBJ_BLOB (i.e. won't cache blobs) and 4k
- *		> for GIT_OBJ_COMMIT, GIT_OBJ_TREE, and GIT_OBJ_TAG.
+ *		> Defaults to 0 for GIT_OBJECT_BLOB (i.e. won't cache blobs) and 4k
+ *		> for GIT_OBJECT_COMMIT, GIT_OBJECT_TREE, and GIT_OBJECT_TAG.
  *
  *	* opts(GIT_OPT_SET_CACHE_MAX_SIZE, ssize_t max_storage_bytes)
  *
@@ -321,6 +360,11 @@ typedef enum {
  *		>
  *		> - `ciphers` is the list of ciphers that are eanbled.
  *
+ *	* opts(GIT_OPT_GET_USER_AGENT, git_buf *out)
+ *
+ *		> Get the value of the User-Agent header.
+ *		> The User-Agent is written to the `out` buffer.
+ *
  *	* opts(GIT_OPT_ENABLE_OFS_DELTA, int enabled)
  *
  *		> Enable or disable the use of "offset deltas" when creating packfiles,
@@ -344,6 +388,66 @@ typedef enum {
  *		> objects from disk. This may impact performance due to an
  *		> additional checksum calculation on each object. This defaults
  *		> to enabled.
+ *
+ *	 opts(GIT_OPT_SET_ALLOCATOR, git_allocator *allocator)
+ *
+ *		> Set the memory allocator to a different memory allocator. This
+ *		> allocator will then be used to make all memory allocations for
+ *		> libgit2 operations.  If the given `allocator` is NULL, then the
+ *		> system default will be restored.
+ *
+ *	 opts(GIT_OPT_ENABLE_UNSAVED_INDEX_SAFETY, int enabled)
+ *
+ *		> Ensure that there are no unsaved changes in the index before
+ *		> beginning any operation that reloads the index from disk (eg,
+ *		> checkout).  If there are unsaved changes, the instruction will
+ *		> fail.  (Using the FORCE flag to checkout will still overwrite
+ *		> these changes.)
+ *
+ *	 opts(GIT_OPT_GET_PACK_MAX_OBJECTS, size_t *out)
+ *
+ *		> Get the maximum number of objects libgit2 will allow in a pack
+ *		> file when downloading a pack file from a remote. This can be
+ *		> used to limit maximum memory usage when fetching from an untrusted
+ *		> remote.
+ *
+ *	 opts(GIT_OPT_SET_PACK_MAX_OBJECTS, size_t objects)
+ *
+ *		> Set the maximum number of objects libgit2 will allow in a pack
+ *		> file when downloading a pack file from a remote.
+ *
+ *	 opts(GIT_OPT_DISABLE_PACK_KEEP_FILE_CHECKS, int enabled)
+ *		> This will cause .keep file existence checks to be skipped when
+ *		> accessing packfiles, which can help performance with remote filesystems.
+ *
+ *	 opts(GIT_OPT_ENABLE_HTTP_EXPECT_CONTINUE, int enabled)
+ *		> When connecting to a server using NTLM or Negotiate
+ *		> authentication, use expect/continue when POSTing data.
+ *		> This option is not available on Windows.
+ *
+ *   opts(GIT_OPT_SET_ODB_PACKED_PRIORITY, int priority)
+ *      > Override the default priority of the packed ODB backend which
+ *      > is added when default backends are assigned to a repository
+ *
+ *   opts(GIT_OPT_SET_ODB_LOOSE_PRIORITY, int priority)
+ *      > Override the default priority of the loose ODB backend which
+ *      > is added when default backends are assigned to a repository
+ *
+ *   opts(GIT_OPT_GET_EXTENSIONS, git_strarray *out)
+ *      > Returns the list of git extensions that are supported.  This
+ *      > is the list of built-in extensions supported by libgit2 and
+ *      > custom extensions that have been added with
+ *      > `GIT_OPT_SET_EXTENSIONS`.  Extensions that have been negated
+ *      > will not be returned.  The returned list should be released
+ *      > with `git_strarray_dispose`.
+ *
+ *   opts(GIT_OPT_SET_EXTENSIONS, const char **extensions, size_t len)
+ *      > Set that the given git extensions are supported by the caller.
+ *      > Extensions supported by libgit2 may be negated by prefixing
+ *      > them with a `!`.  For example: setting extensions to
+ *      > { "!noop", "newext" } indicates that the caller does not want
+ *      > to support repositories with the `noop` extension but does want
+ *      > to support repositories with the `newext` extension.
  *
  * @param option Option key
  * @param ... value to set the option

@@ -47,15 +47,15 @@ static void replace_file_with_mode(
 		path.ptr, content.ptr, content.size,
 		O_WRONLY|O_CREAT|O_TRUNC, create_mode);
 
-	git_buf_free(&path);
-	git_buf_free(&content);
+	git_buf_dispose(&path);
+	git_buf_dispose(&content);
 }
 
-#define add_and_check_mode(I,F,X) add_and_check_mode_(I,F,X,__FILE__,__LINE__)
+#define add_and_check_mode(I,F,X) add_and_check_mode_(I,F,X,__FILE__,__func__,__LINE__)
 
 static void add_and_check_mode_(
 	git_index *index, const char *filename, unsigned int expect_mode,
-	const char *file, int line)
+	const char *file, const char *func, int line)
 {
 	size_t pos;
 	const git_index_entry *entry;
@@ -63,11 +63,11 @@ static void add_and_check_mode_(
 	cl_git_pass(git_index_add_bypath(index, filename));
 
 	clar__assert(!git_index_find(&pos, index, filename),
-		file, line, "Cannot find index entry", NULL, 1);
+		file, func, line, "Cannot find index entry", NULL, 1);
 
 	entry = git_index_get_byindex(index, pos);
 
-	clar__assert_equal(file, line, "Expected mode does not match index",
+	clar__assert_equal(file, func, line, "Expected mode does not match index",
 		1, "%07o", (unsigned int)entry->mode, (unsigned int)expect_mode);
 }
 
@@ -78,7 +78,7 @@ void test_index_filemodes__untrusted(void)
 	cl_repo_set_bool(g_repo, "core.filemode", false);
 
 	cl_git_pass(git_repository_index(&index, g_repo));
-	cl_assert((git_index_caps(index) & GIT_INDEXCAP_NO_FILEMODE) != 0);
+	cl_assert((git_index_caps(index) & GIT_INDEX_CAPABILITY_NO_FILEMODE) != 0);
 
 	/* 1 - add 0644 over existing 0644 -> expect 0644 */
 	replace_file_with_mode("exec_off", "filemodes/exec_off.0", 0644);
@@ -122,7 +122,7 @@ void test_index_filemodes__trusted(void)
 	cl_repo_set_bool(g_repo, "core.filemode", true);
 
 	cl_git_pass(git_repository_index(&index, g_repo));
-	cl_assert((git_index_caps(index) & GIT_INDEXCAP_NO_FILEMODE) == 0);
+	cl_assert((git_index_caps(index) & GIT_INDEX_CAPABILITY_NO_FILEMODE) == 0);
 
 	/* 1 - add 0644 over existing 0644 -> expect 0644 */
 	replace_file_with_mode("exec_off", "filemodes/exec_off.0", 0644);
@@ -153,23 +153,23 @@ void test_index_filemodes__trusted(void)
 	git_index_free(index);
 }
 
-#define add_entry_and_check_mode(I,FF,X) add_entry_and_check_mode_(I,FF,X,__FILE__,__LINE__)
+#define add_entry_and_check_mode(I,FF,X) add_entry_and_check_mode_(I,FF,X,__FILE__,__func__,__LINE__)
 
 static void add_entry_and_check_mode_(
 	git_index *index, bool from_file, git_filemode_t mode,
-	const char *file, int line)
+	const char *file, const char *func, int line)
 {
 	size_t pos;
 	const git_index_entry* entry;
 	git_index_entry new_entry;
 
 	/* If old_filename exists, we copy that to the new file, and test
-	 * git_index_add(), otherwise create a new entry testing git_index_add_frombuffer
+	 * git_index_add(), otherwise create a new entry testing git_index_add_from_buffer
 	 */
 	if (from_file)
 	{
 		clar__assert(!git_index_find(&pos, index, "exec_off"),
-			file, line, "Cannot find original index entry", NULL, 1);
+			file, func, line, "Cannot find original index entry", NULL, 1);
 
 		entry = git_index_get_byindex(index, pos);
 
@@ -184,21 +184,21 @@ static void add_entry_and_check_mode_(
 	if (from_file)
 	{
 		clar__assert(!git_index_add(index, &new_entry),
-			file, line, "Cannot add index entry", NULL, 1);
+			file, func, line, "Cannot add index entry", NULL, 1);
 	}
 	else
 	{
 		const char *content = "hey there\n";
-		clar__assert(!git_index_add_frombuffer(index, &new_entry, content, strlen(content)),
-			file, line, "Cannot add index entry from buffer", NULL, 1);
+		clar__assert(!git_index_add_from_buffer(index, &new_entry, content, strlen(content)),
+			file, func, line, "Cannot add index entry from buffer", NULL, 1);
 	}
 
 	clar__assert(!git_index_find(&pos, index, "filemodes/explicit_test"),
-		file, line, "Cannot find new index entry", NULL, 1);
+		file, func, line, "Cannot find new index entry", NULL, 1);
 
 	entry = git_index_get_byindex(index, pos);
 
-	clar__assert_equal(file, line, "Expected mode does not match index",
+	clar__assert_equal(file, func, line, "Expected mode does not match index",
 		1, "%07o", (unsigned int)entry->mode, (unsigned int)mode);
 }
 
@@ -207,7 +207,7 @@ void test_index_filemodes__explicit(void)
 	git_index *index;
 
 	/* These tests should run and work everywhere, as the filemode is
-	 * given explicitly to git_index_add or git_index_add_frombuffer
+	 * given explicitly to git_index_add or git_index_add_from_buffer
 	 */
 	cl_repo_set_bool(g_repo, "core.filemode", false);
 
@@ -245,9 +245,9 @@ void test_index_filemodes__invalid(void)
 	cl_git_pass(git_index_add_bypath(index, "dummy-file.txt"));
 	cl_assert((dummy = git_index_get_bypath(index, "dummy-file.txt", 0)));
 
-	GIT_IDXENTRY_STAGE_SET(&entry, 0);
+	GIT_INDEX_ENTRY_STAGE_SET(&entry, 0);
 	entry.path = "foo";
-	entry.mode = GIT_OBJ_BLOB;
+	entry.mode = GIT_OBJECT_BLOB;
 	git_oid_cpy(&entry.id, &dummy->id);
 	cl_git_fail(git_index_add(index, &entry));
 
@@ -271,7 +271,7 @@ void test_index_filemodes__frombuffer_requires_files(void)
 	new_entry.path = "dummy-file.txt";
 	new_entry.mode = GIT_FILEMODE_BLOB;
 
-	cl_git_pass(git_index_add_frombuffer(index,
+	cl_git_pass(git_index_add_from_buffer(index,
 		&new_entry, content, strlen(content)));
 
 	cl_assert((ret_entry = git_index_get_bypath(index, "dummy-file.txt", 0)));
@@ -282,7 +282,7 @@ void test_index_filemodes__frombuffer_requires_files(void)
 	new_entry.path = "dummy-file.txt";
 	new_entry.mode = GIT_FILEMODE_BLOB_EXECUTABLE;
 
-	cl_git_pass(git_index_add_frombuffer(index,
+	cl_git_pass(git_index_add_from_buffer(index,
 		&new_entry, content, strlen(content)));
 
 	cl_assert((ret_entry = git_index_get_bypath(index, "dummy-file.txt", 0)));
@@ -293,7 +293,7 @@ void test_index_filemodes__frombuffer_requires_files(void)
 	new_entry.path = "dummy-link.txt";
 	new_entry.mode = GIT_FILEMODE_LINK;
 
-	cl_git_pass(git_index_add_frombuffer(index,
+	cl_git_pass(git_index_add_from_buffer(index,
 		&new_entry, content, strlen(content)));
 
 	cl_assert((ret_entry = git_index_get_bypath(index, "dummy-link.txt", 0)));
@@ -304,7 +304,7 @@ void test_index_filemodes__frombuffer_requires_files(void)
 	new_entry.path = "invalid_mode.txt";
 	new_entry.mode = GIT_FILEMODE_TREE;
 
-	cl_git_fail(git_index_add_frombuffer(index,
+	cl_git_fail(git_index_add_from_buffer(index,
 		&new_entry, content, strlen(content)));
 	cl_assert_equal_p(NULL, git_index_get_bypath(index, "invalid_mode.txt", 0));
 
@@ -312,7 +312,7 @@ void test_index_filemodes__frombuffer_requires_files(void)
 	new_entry.path = "invalid_mode.txt";
 	new_entry.mode = GIT_FILEMODE_COMMIT;
 
-	cl_git_fail(git_index_add_frombuffer(index,
+	cl_git_fail(git_index_add_from_buffer(index,
 		&new_entry, content, strlen(content)));
 	cl_assert_equal_p(NULL, git_index_get_bypath(index, "invalid_mode.txt", 0));
 

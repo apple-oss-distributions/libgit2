@@ -1,7 +1,6 @@
 #include "clar_libgit2.h"
 #include "posix.h"
 #include "blob.h"
-#include "buf_text.h"
 
 static git_repository *g_repo = NULL;
 
@@ -19,7 +18,7 @@ static const char *g_crlf_raw[CRLF_NUM_TEST_OBJECTS] = {
 	"\xFE\xFF\x00T\x00h\x00i\x00s\x00!"
 };
 
-static git_off_t g_crlf_raw_len[CRLF_NUM_TEST_OBJECTS] = {
+static off64_t g_crlf_raw_len[CRLF_NUM_TEST_OBJECTS] = {
 	-1, -1, -1, -1, -1, 17, -1, -1, 12
 };
 
@@ -44,9 +43,9 @@ static git_buf_text_stats g_crlf_filtered_stats[CRLF_NUM_TEST_OBJECTS] = {
 	{ 0, 0, 2, 2, 2, 6, 0 },
 	{ 0, 0, 4, 4, 1, 31, 0 },
 	{ 0, 1, 1, 2, 1, 9, 5 },
-	{ GIT_BOM_UTF8, 0, 0, 1, 0, 16, 0 },
-	{ GIT_BOM_UTF8, 0, 2, 2, 2, 27, 0 },
-	{ GIT_BOM_UTF16_BE, 5, 0, 0, 0, 7, 5 },
+	{ GIT_BUF_BOM_UTF8, 0, 0, 1, 0, 16, 0 },
+	{ GIT_BUF_BOM_UTF8, 0, 2, 2, 2, 27, 0 },
+	{ GIT_BUF_BOM_UTF16_BE, 5, 0, 0, 0, 7, 5 },
 };
 
 void test_object_blob_filter__initialize(void)
@@ -59,7 +58,7 @@ void test_object_blob_filter__initialize(void)
 		if (g_crlf_raw_len[i] < 0)
 			g_crlf_raw_len[i] = strlen(g_crlf_raw[i]);
 
-		cl_git_pass(git_blob_create_frombuffer(
+		cl_git_pass(git_blob_create_from_buffer(
 			&g_crlf_oids[i], g_repo, g_crlf_raw[i], (size_t)g_crlf_raw_len[i]));
 	}
 }
@@ -97,13 +96,13 @@ void test_object_blob_filter__stats(void)
 	for (i = 0; i < CRLF_NUM_TEST_OBJECTS; i++) {
 		cl_git_pass(git_blob_lookup(&blob, g_repo, &g_crlf_oids[i]));
 		cl_git_pass(git_blob__getbuf(&buf, blob));
-		git_buf_text_gather_stats(&stats, &buf, false);
+		git_buf_gather_text_stats(&stats, &buf, false);
 		cl_assert_equal_i(
 			0, memcmp(&g_crlf_filtered_stats[i], &stats, sizeof(stats)));
 		git_blob_free(blob);
 	}
 
-	git_buf_free(&buf);
+	git_buf_dispose(&buf);
 }
 
 void test_object_blob_filter__to_odb(void)
@@ -139,12 +138,12 @@ void test_object_blob_filter__to_odb(void)
 		cl_assert_equal_sz(g_crlf_filtered[i].size, zeroed.size);
 		cl_assert_equal_i(
 			0, memcmp(zeroed.ptr, g_crlf_filtered[i].ptr, zeroed.size));
-		git_buf_free(&zeroed);
+		git_buf_dispose(&zeroed);
 
 		git_blob_free(blob);
 	}
 
 	git_filter_list_free(fl);
-	git_buf_free(&out);
+	git_buf_dispose(&out);
 	git_config_free(cfg);
 }

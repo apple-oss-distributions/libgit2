@@ -22,7 +22,7 @@
 int git_reset_default(
 	git_repository *repo,
 	const git_object *target,
-	const git_strarray* pathspecs)
+	const git_strarray *pathspecs)
 {
 	git_object *commit = NULL;
 	git_tree *tree = NULL;
@@ -33,7 +33,7 @@ int git_reset_default(
 	int error;
 	git_index *index = NULL;
 
-	assert(pathspecs != NULL && pathspecs->count > 0);
+	GIT_ASSERT_ARG(pathspecs && pathspecs->count > 0);
 
 	memset(&entry, 0, sizeof(git_index_entry));
 
@@ -42,12 +42,12 @@ int git_reset_default(
 
 	if (target) {
 		if (git_object_owner(target) != repo) {
-			giterr_set(GITERR_OBJECT,
+			git_error_set(GIT_ERROR_OBJECT,
 				"%s_default - The given target does not belong to this repository.", ERROR_MSG);
 			return -1;
 		}
 
-		if ((error = git_object_peel(&commit, target, GIT_OBJ_COMMIT)) < 0 ||
+		if ((error = git_object_peel(&commit, target, GIT_OBJECT_COMMIT)) < 0 ||
 			(error = git_commit_tree(&tree, (git_commit *)commit)) < 0)
 			goto cleanup;
 	}
@@ -62,15 +62,15 @@ int git_reset_default(
 	for (i = 0, max_i = git_diff_num_deltas(diff); i < max_i; ++i) {
 		const git_diff_delta *delta = git_diff_get_delta(diff, i);
 
-		assert(delta->status == GIT_DELTA_ADDED ||
-			delta->status == GIT_DELTA_MODIFIED ||
-			delta->status == GIT_DELTA_CONFLICTED ||
-			delta->status == GIT_DELTA_DELETED);
+		GIT_ASSERT(delta->status == GIT_DELTA_ADDED ||
+		           delta->status == GIT_DELTA_MODIFIED ||
+		           delta->status == GIT_DELTA_CONFLICTED ||
+		           delta->status == GIT_DELTA_DELETED);
 
 		error = git_index_conflict_remove(index, delta->old_file.path);
 		if (error < 0) {
 			if (delta->status == GIT_DELTA_ADDED && error == GIT_ENOTFOUND)
-				giterr_clear();
+				git_error_clear();
 			else
 				goto cleanup;
 		}
@@ -113,13 +113,14 @@ static int reset(
 	git_checkout_options opts = GIT_CHECKOUT_OPTIONS_INIT;
 	git_buf log_message = GIT_BUF_INIT;
 
-	assert(repo && target);
+	GIT_ASSERT_ARG(repo);
+	GIT_ASSERT_ARG(target);
 
 	if (checkout_opts)
 		opts = *checkout_opts;
 
 	if (git_object_owner(target) != repo) {
-		giterr_set(GITERR_OBJECT,
+		git_error_set(GIT_ERROR_OBJECT,
 			"%s - The given target does not belong to this repository.", ERROR_MSG);
 		return -1;
 	}
@@ -129,7 +130,7 @@ static int reset(
 			reset_type == GIT_RESET_MIXED ? "reset mixed" : "reset hard")) < 0)
 		return error;
 
-	if ((error = git_object_peel(&commit, target, GIT_OBJ_COMMIT)) < 0 ||
+	if ((error = git_object_peel(&commit, target, GIT_OBJECT_COMMIT)) < 0 ||
 		(error = git_repository_index(&index, repo)) < 0 ||
 		(error = git_commit_tree(&tree, (git_commit *)commit)) < 0)
 		goto cleanup;
@@ -138,7 +139,7 @@ static int reset(
 		(git_repository_state(repo) == GIT_REPOSITORY_STATE_MERGE ||
 		 git_index_has_conflicts(index)))
 	{
-		giterr_set(GITERR_OBJECT, "%s (soft) in the middle of a merge", ERROR_MSG);
+		git_error_set(GIT_ERROR_OBJECT, "%s (soft) in the middle of a merge", ERROR_MSG);
 		error = GIT_EUNMERGED;
 		goto cleanup;
 	}
@@ -167,7 +168,7 @@ static int reset(
 			goto cleanup;
 
 		if ((error = git_repository_state_cleanup(repo)) < 0) {
-			giterr_set(GITERR_INDEX, "%s - failed to clean up merge data", ERROR_MSG);
+			git_error_set(GIT_ERROR_INDEX, "%s - failed to clean up merge data", ERROR_MSG);
 			goto cleanup;
 		}
 	}
@@ -176,7 +177,7 @@ cleanup:
 	git_object_free(commit);
 	git_index_free(index);
 	git_tree_free(tree);
-	git_buf_free(&log_message);
+	git_buf_dispose(&log_message);
 
 	return error;
 }

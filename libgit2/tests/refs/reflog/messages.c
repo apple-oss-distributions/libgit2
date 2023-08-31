@@ -1,6 +1,6 @@
 #include "clar_libgit2.h"
 
-#include "fileops.h"
+#include "futils.h"
 #include "git2/reflog.h"
 #include "reflog.h"
 #include "refs.h"
@@ -24,10 +24,7 @@ void test_refs_reflog_messages__cleanup(void)
 void test_refs_reflog_messages__setting_head_updates_reflog(void)
 {
 	git_object *tag;
-	git_signature *sig;
 	git_annotated_commit *annotated;
-
-	cl_git_pass(git_signature_now(&sig, "me", "foo@example.com"));
 
 	cl_git_pass(git_repository_set_head(g_repo, "refs/heads/haacked")); /* 4 */
 	cl_git_pass(git_repository_set_head(g_repo, "refs/heads/unborn"));
@@ -68,7 +65,6 @@ void test_refs_reflog_messages__setting_head_updates_reflog(void)
 
 	git_annotated_commit_free(annotated);
 	git_object_free(tag);
-	git_signature_free(sig);
 }
 
 void test_refs_reflog_messages__setting_head_to_same_target_ignores_reflog(void)
@@ -87,11 +83,8 @@ void test_refs_reflog_messages__setting_head_to_same_target_ignores_reflog(void)
 
 void test_refs_reflog_messages__detaching_writes_reflog(void)
 {
-	git_signature *sig;
 	git_oid id;
 	const char *msg;
-
-	cl_git_pass(git_signature_now(&sig, "me", "foo@example.com"));
 
 	msg = "checkout: moving from master to e90810b8df3e80c413d903f631643c716887138d";
 	git_oid_fromstr(&id, "e90810b8df3e80c413d903f631643c716887138d");
@@ -107,8 +100,6 @@ void test_refs_reflog_messages__detaching_writes_reflog(void)
 		"e90810b8df3e80c413d903f631643c716887138d",
 		"258f0e2a959a364e40ed6603d5d44fbb24765b10",
 		NULL, msg);
-
-	git_signature_free(sig);
 }
 
 void test_refs_reflog_messages__orphan_branch_does_not_count(void)
@@ -155,7 +146,7 @@ void test_refs_reflog_messages__branch_birth(void)
 	cl_git_pass(git_signature_now(&sig, "me", "foo@example.com"));
 
 	cl_git_pass(git_repository_head(&ref, g_repo));
-	cl_git_pass(git_reference_peel((git_object **) &tree, ref, GIT_OBJ_TREE));
+	cl_git_pass(git_reference_peel((git_object **) &tree, ref, GIT_OBJECT_TREE));
 
 	cl_git_pass(git_repository_set_head(g_repo, "refs/heads/orphan"));
 
@@ -191,7 +182,7 @@ void test_refs_reflog_messages__commit_on_symbolic_ref_updates_head_reflog(void)
 	cl_git_pass(git_signature_now(&sig, "me", "foo@example.com"));
 
 	cl_git_pass(git_repository_head(&ref1, g_repo));
-	cl_git_pass(git_reference_peel((git_object **) &tree, ref1, GIT_OBJ_TREE));
+	cl_git_pass(git_reference_peel((git_object **) &tree, ref1, GIT_OBJECT_TREE));
 
 	nentries_master = reflog_entrycount(g_repo, "refs/heads/master");
 
@@ -281,6 +272,27 @@ void test_refs_reflog_messages__creating_a_direct_reference(void)
 	git_reference_free(reference);
 }
 
+void test_refs_reflog_messages__newline_gets_replaced(void)
+{
+	const git_reflog_entry *entry;
+	git_signature *signature;
+	git_reflog *reflog;
+	git_oid oid;
+
+	cl_git_pass(git_signature_now(&signature, "me", "foo@example.com"));
+	cl_git_pass(git_oid_fromstr(&oid, "a65fedf39aefe402d3bb6e24df4d4f5fe4547750"));
+
+	cl_git_pass(git_reflog_read(&reflog, g_repo, "HEAD"));
+	cl_assert_equal_sz(7, git_reflog_entrycount(reflog));
+	cl_git_pass(git_reflog_append(reflog, &oid, signature, "inner\nnewline"));
+	cl_assert_equal_sz(8, git_reflog_entrycount(reflog));
+
+	cl_assert(entry = git_reflog_entry_byindex(reflog, 0));
+	cl_assert_equal_s(git_reflog_entry_message(entry), "inner newline");
+
+	git_signature_free(signature);
+	git_reflog_free(reflog);
+}
 
 void test_refs_reflog_messages__renaming_ref(void)
 {
@@ -355,7 +367,7 @@ void test_refs_reflog_messages__creating_branches_default_messages(void)
 		g_email, "branch: Created from e90810b8df3");
 
 	git_annotated_commit_free(annotated);
-	git_buf_free(&buf);
+	git_buf_dispose(&buf);
 	git_commit_free(target);
 	git_reference_free(branch1);
 	git_reference_free(branch2);

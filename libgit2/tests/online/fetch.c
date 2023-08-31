@@ -3,9 +3,19 @@
 static git_repository *_repo;
 static int counter;
 
+static char *_remote_proxy_scheme = NULL;
+static char *_remote_proxy_host = NULL;
+static char *_remote_proxy_user = NULL;
+static char *_remote_proxy_pass = NULL;
+
 void test_online_fetch__initialize(void)
 {
 	cl_git_pass(git_repository_init(&_repo, "./fetch", 0));
+
+    _remote_proxy_scheme = cl_getenv("GITTEST_REMOTE_PROXY_SCHEME");
+    _remote_proxy_host = cl_getenv("GITTEST_REMOTE_PROXY_HOST");
+    _remote_proxy_user = cl_getenv("GITTEST_REMOTE_PROXY_USER");
+    _remote_proxy_pass = cl_getenv("GITTEST_REMOTE_PROXY_PASS");
 }
 
 void test_online_fetch__cleanup(void)
@@ -14,6 +24,11 @@ void test_online_fetch__cleanup(void)
 	_repo = NULL;
 
 	cl_fixture_cleanup("./fetch");
+
+    git__free(_remote_proxy_scheme);
+    git__free(_remote_proxy_host);
+    git__free(_remote_proxy_user);
+    git__free(_remote_proxy_pass);
 }
 
 static int update_tips(const char *refname, const git_oid *a, const git_oid *b, void *data)
@@ -25,7 +40,7 @@ static int update_tips(const char *refname, const git_oid *a, const git_oid *b, 
 	return 0;
 }
 
-static int progress(const git_transfer_progress *stats, void *payload)
+static int progress(const git_indexer_progress *stats, void *payload)
 {
 	size_t *bytes_received = (size_t *)payload;
 	*bytes_received = stats->received_bytes;
@@ -84,15 +99,15 @@ void test_online_fetch__fetch_twice(void)
 	cl_git_pass(git_remote_connect(remote, GIT_DIRECTION_FETCH, NULL, NULL, NULL));
 	cl_git_pass(git_remote_download(remote, NULL, NULL));
     	git_remote_disconnect(remote);
-    	
+
 	git_remote_connect(remote, GIT_DIRECTION_FETCH, NULL, NULL, NULL);
 	cl_git_pass(git_remote_download(remote, NULL, NULL));
 	git_remote_disconnect(remote);
-	
+
 	git_remote_free(remote);
 }
 
-static int transferProgressCallback(const git_transfer_progress *stats, void *payload)
+static int transferProgressCallback(const git_indexer_progress *stats, void *payload)
 {
 	bool *invoked = (bool *)payload;
 
@@ -134,7 +149,7 @@ void test_online_fetch__doesnt_retrieve_a_pack_when_the_repository_is_up_to_date
 	git_repository_free(_repository);
 }
 
-static int cancel_at_half(const git_transfer_progress *stats, void *payload)
+static int cancel_at_half(const git_indexer_progress *stats, void *payload)
 {
 	GIT_UNUSED(payload);
 
@@ -206,4 +221,29 @@ void test_online_fetch__twice(void)
 	cl_git_pass(git_remote_fetch(remote, NULL, NULL, NULL));
 
 	git_remote_free(remote);
+}
+
+void test_online_fetch__proxy(void)
+{
+    git_remote *remote;
+    git_buf url = GIT_BUF_INIT;
+    git_fetch_options fetch_opts;
+
+    if (!_remote_proxy_host || !_remote_proxy_user || !_remote_proxy_pass)
+        cl_skip();
+
+    cl_git_pass(git_buf_printf(&url, "%s://%s:%s@%s/",
+        _remote_proxy_scheme ? _remote_proxy_scheme : "http",
+        _remote_proxy_user, _remote_proxy_pass, _remote_proxy_host));
+
+    cl_git_pass(git_fetch_options_init(&fetch_opts, GIT_FETCH_OPTIONS_VERSION));
+    fetch_opts.proxy_opts.type = GIT_PROXY_SPECIFIED;
+    fetch_opts.proxy_opts.url = url.ptr;
+
+    cl_git_pass(git_remote_create(&remote, _repo, "test", "https://github.com/libgit2/TestGitRepository.git"));
+    cl_git_pass(git_remote_connect(remote, GIT_DIRECTION_FETCH, NULL, &fetch_opts.proxy_opts, NULL));
+    cl_git_pass(git_remote_fetch(remote, NULL, &fetch_opts, NULL));
+
+    git_remote_free(remote);
+    git_buf_dispose(&url);
 }

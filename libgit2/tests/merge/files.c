@@ -6,7 +6,7 @@
 #include "merge_helpers.h"
 #include "conflict_data.h"
 #include "refs.h"
-#include "fileops.h"
+#include "futils.h"
 #include "diff_xdiff.h"
 
 #define TEST_REPO_PATH "merge-resolve"
@@ -15,7 +15,7 @@
 static git_repository *repo;
 static git_index *repo_index;
 
-// Fixture setup and teardown
+/* Fixture setup and teardown */
 void test_merge_files__initialize(void)
 {
 	git_config *cfg;

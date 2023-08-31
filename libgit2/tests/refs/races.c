@@ -22,6 +22,24 @@ void test_refs_races__cleanup(void)
    cl_git_sandbox_cleanup();
 }
 
+void test_refs_races__create_matching_zero_old(void)
+{
+	git_reference *ref;
+	git_oid id, zero_id;
+
+	git_oid_fromstr(&id, commit_id);
+	git_oid_fromstr(&zero_id, "0000000000000000000000000000000000000000");
+
+	cl_git_fail(git_reference_create_matching(&ref, g_repo, refname, &id, 1, &zero_id, NULL));
+	git_reference_free(ref);
+
+	cl_git_pass(git_reference_create_matching(&ref, g_repo, other_refname, &id, 1, &zero_id, NULL));
+	git_reference_free(ref);
+
+	cl_git_fail(git_reference_create_matching(&ref, g_repo, other_refname, &id, 1, &zero_id, NULL));
+	git_reference_free(ref);
+}
+
 void test_refs_races__create_matching(void)
 {
 	git_reference *ref, *ref2, *ref3;
@@ -74,8 +92,8 @@ void test_refs_races__delete(void)
 	git_reference_free(ref);
 
 	/* We cannot delete a symbolic value that doesn't match */
-	cl_git_pass(git_reference_lookup(&ref, g_repo, "HEAD"));
-	cl_git_pass(git_reference_symbolic_create_matching(&ref2, g_repo, "HEAD", other_refname, 1, NULL, refname));
+	cl_git_pass(git_reference_lookup(&ref, g_repo, "refs/symref"));
+	cl_git_pass(git_reference_symbolic_create_matching(&ref2, g_repo, "refs/symref", other_refname, 1, NULL, refname));
 	cl_git_fail_with(GIT_EMODIFIED, git_reference_delete(ref));
 
 	git_reference_free(ref);
@@ -131,19 +149,19 @@ void test_refs_races__switch_symbolic_to_oid(void)
 	git_oid_fromstr(&other_id, other_commit_id);
 
 	/* Removing a symbolic ref when it's currently direct should fail */
-	cl_git_pass(git_reference_lookup(&ref, g_repo, "HEAD"));
-	cl_git_pass(git_reference_create(&ref2, g_repo, "HEAD", &id, 1, NULL));
+	cl_git_pass(git_reference_lookup(&ref, g_repo, "refs/symref"));
+	cl_git_pass(git_reference_create(&ref2, g_repo, "refs/symref", &id, 1, NULL));
 	cl_git_fail_with(GIT_EMODIFIED, git_reference_delete(ref));
 
 	git_reference_free(ref);
 	git_reference_free(ref2);
 
-	cl_git_pass(git_reference_symbolic_create(&ref, g_repo, "HEAD", refname, 1, NULL));
+	cl_git_pass(git_reference_symbolic_create(&ref, g_repo, "refs/symref", refname, 1, NULL));
 	git_reference_free(ref);
 
 	/* Updating a symbolic ref when it's currently direct should fail */
-	cl_git_pass(git_reference_lookup(&ref, g_repo, "HEAD"));
-	cl_git_pass(git_reference_create(&ref2, g_repo, "HEAD", &id, 1, NULL));
+	cl_git_pass(git_reference_lookup(&ref, g_repo, "refs/symref"));
+	cl_git_pass(git_reference_create(&ref2, g_repo, "refs/symref", &id, 1, NULL));
 	cl_git_fail_with(GIT_EMODIFIED, git_reference_symbolic_set_target(&ref3, ref, other_refname, NULL));
 
 	git_reference_free(ref);

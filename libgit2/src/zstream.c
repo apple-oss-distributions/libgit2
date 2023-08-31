@@ -22,13 +22,13 @@ GIT_INLINE(int) zstream_seterr(git_zstream *zs)
 	case Z_BUF_ERROR: /* not fatal; we retry with a larger buffer */
 		return 0;
 	case Z_MEM_ERROR:
-		giterr_set_oom();
+		git_error_set_oom();
 		break;
 	default:
 		if (zs->z.msg)
-			giterr_set_str(GITERR_ZLIB, zs->z.msg);
+			git_error_set_str(GIT_ERROR_ZLIB, zs->z.msg);
 		else
-			giterr_set(GITERR_ZLIB, "unknown compression error");
+			git_error_set(GIT_ERROR_ZLIB, "unknown compression error");
 	}
 
 	return -1;
@@ -75,6 +75,11 @@ int git_zstream_set_input(git_zstream *zstream, const void *in, size_t in_len)
 bool git_zstream_done(git_zstream *zstream)
 {
 	return (!zstream->in_len && zstream->zerr == Z_STREAM_END);
+}
+
+bool git_zstream_eos(git_zstream *zstream)
+{
+	return zstream->zerr == Z_STREAM_END;
 }
 
 size_t git_zstream_suggest_output_len(git_zstream *zstream)
@@ -136,7 +141,7 @@ int git_zstream_get_output(void *out, size_t *out_len, git_zstream *zstream)
 	size_t out_remain = *out_len;
 
 	if (zstream->in_len && zstream->zerr == Z_STREAM_END) {
-		giterr_set(GITERR_ZLIB, "zlib input had trailing garbage");
+		git_error_set(GIT_ERROR_ZLIB, "zlib input had trailing garbage");
 		return -1;
 	}
 
@@ -151,7 +156,7 @@ int git_zstream_get_output(void *out, size_t *out_len, git_zstream *zstream)
 	}
 
 	/* either we finished the input or we did not flush the data */
-	assert(zstream->in_len > 0 || zstream->flush == Z_FINISH);
+	GIT_ASSERT(zstream->in_len > 0 || zstream->flush == Z_FINISH);
 
 	/* set out_size to number of bytes actually written to output */
 	*out_len = *out_len - out_remain;

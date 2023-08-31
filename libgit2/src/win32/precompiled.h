@@ -1,6 +1,5 @@
 #include "common.h"
 
-#include <assert.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -12,8 +11,6 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
-
-#include <regex.h>
 
 #include <io.h>
 #include <direct.h>

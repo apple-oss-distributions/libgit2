@@ -2,11 +2,13 @@
 #include "checkout_helpers.h"
 
 #include "git2/checkout.h"
-#include "fileops.h"
+#include "futils.h"
 #include "repository.h"
 #include "remote.h"
+#include "repo/repo_helpers.h"
 
 static git_repository *g_repo;
+static git_buf g_global_path = GIT_BUF_INIT;
 
 void test_checkout_index__initialize(void)
 {
@@ -22,21 +24,29 @@ void test_checkout_index__initialize(void)
 	cl_git_rewritefile(
 		"./testrepo/.gitattributes",
 		"* text eol=lf\n");
+
+	git_libgit2_opts(GIT_OPT_GET_SEARCH_PATH, GIT_CONFIG_LEVEL_GLOBAL,
+		&g_global_path);
 }
 
 void test_checkout_index__cleanup(void)
 {
+	git_libgit2_opts(GIT_OPT_SET_SEARCH_PATH, GIT_CONFIG_LEVEL_GLOBAL,
+		g_global_path.ptr);
+	git_buf_dispose(&g_global_path);
+
 	cl_git_sandbox_cleanup();
 
-	/* try to remove alternative dir */
-	if (git_path_isdir("alternative"))
-		git_futils_rmdir_r("alternative", NULL, GIT_RMDIR_REMOVE_FILES);
+	/* try to remove directories created by tests */
+	cl_fixture_cleanup("alternative");
+	cl_fixture_cleanup("symlink");
+	cl_fixture_cleanup("symlink.git");
+	cl_fixture_cleanup("tmp_global_path");
 }
 
 void test_checkout_index__cannot_checkout_a_bare_repository(void)
 {
-	test_checkout_index__cleanup();
-
+	cl_git_sandbox_cleanup();
 	g_repo = cl_git_sandbox_init("testrepo.git");
 
 	cl_git_fail(git_checkout_index(g_repo, NULL, NULL));
@@ -77,6 +87,61 @@ void test_checkout_index__can_remove_untracked_files(void)
 	cl_git_pass(git_checkout_index(g_repo, NULL, &opts));
 
 	cl_assert_equal_i(false, git_path_isdir("./testrepo/dir"));
+}
+
+void test_checkout_index__can_disable_pathspec_match(void)
+{
+	char *files_to_checkout[] = { "test10.txt", "test11.txt"};
+	git_checkout_options opts = GIT_CHECKOUT_OPTIONS_INIT;
+	git_object *objects;
+	git_index *index;
+
+	/* reset to beginning of history (i.e. just a README file) */
+	opts.checkout_strategy = GIT_CHECKOUT_FORCE | GIT_CHECKOUT_REMOVE_UNTRACKED;
+
+	cl_git_pass(git_revparse_single(&objects, g_repo, "8496071c1b46c854b31185ea97743be6a8774479"));
+	cl_git_pass(git_checkout_tree(g_repo, objects, &opts));
+	cl_git_pass(git_repository_set_head_detached(g_repo, git_object_id(objects)));
+	git_object_free(objects);
+
+	cl_git_pass(git_repository_index(&index, g_repo));
+
+	/* We create 4 files and commit them */
+	cl_git_mkfile("testrepo/test9.txt", "original\n");
+	cl_git_mkfile("testrepo/test10.txt", "original\n");
+	cl_git_mkfile("testrepo/test11.txt", "original\n");
+	cl_git_mkfile("testrepo/test12.txt", "original\n");
+
+	cl_git_pass(git_index_add_bypath(index, "test9.txt"));
+	cl_git_pass(git_index_add_bypath(index, "test10.txt"));
+	cl_git_pass(git_index_add_bypath(index, "test11.txt"));
+	cl_git_pass(git_index_add_bypath(index, "test12.txt"));
+	cl_git_pass(git_index_write(index));
+
+	cl_repo_commit_from_index(NULL, g_repo, NULL, 0, "commit our test files");
+
+	/* We modify the content of all 4 of our files */
+	cl_git_rewritefile("testrepo/test9.txt", "modified\n");
+	cl_git_rewritefile("testrepo/test10.txt", "modified\n");
+	cl_git_rewritefile("testrepo/test11.txt", "modified\n");
+	cl_git_rewritefile("testrepo/test12.txt", "modified\n");
+
+	/* We checkout only test10.txt and test11.txt */
+	opts.checkout_strategy =
+		GIT_CHECKOUT_FORCE |
+		GIT_CHECKOUT_DISABLE_PATHSPEC_MATCH;
+	opts.paths.strings = files_to_checkout;
+	opts.paths.count = ARRAY_SIZE(files_to_checkout);
+	cl_git_pass(git_checkout_index(g_repo, NULL, &opts));
+
+	/* The only files that have been reverted to their original content
+	   should be test10.txt and test11.txt */
+	check_file_contents("testrepo/test9.txt", "modified\n");
+	check_file_contents("testrepo/test10.txt", "original\n");
+	check_file_contents("testrepo/test11.txt", "original\n");
+	check_file_contents("testrepo/test12.txt", "modified\n");
+
+	git_index_free(index);
 }
 
 void test_checkout_index__honor_the_specified_pathspecs(void)
@@ -136,22 +201,21 @@ void test_checkout_index__honor_coreautocrlf_setting_set_to_true(void)
 #endif
 }
 
-void test_checkout_index__honor_coresymlinks_default(void)
+static void populate_symlink_workdir(void)
 {
+	git_buf path = GIT_BUF_INIT;
 	git_repository *repo;
 	git_remote *origin;
 	git_object *target;
-	char cwd[GIT_PATH_MAX];
 
 	const char *url = git_repository_path(g_repo);
 
-	cl_assert(getcwd(cwd, sizeof(cwd)) != NULL);
-	cl_assert_equal_i(0, p_mkdir("readonly", 0555)); // Read-only directory
-	cl_assert_equal_i(0, chdir("readonly"));
-	cl_git_pass(git_repository_init(&repo, "../symlink.git", true));
-	cl_assert_equal_i(0, chdir(cwd));
-	cl_assert_equal_i(0, p_mkdir("symlink", 0777));
+	cl_git_pass(git_buf_joinpath(&path, clar_sandbox_path(), "symlink.git"));
+	cl_git_pass(git_repository_init(&repo, path.ptr, true));
 	cl_git_pass(git_repository_set_workdir(repo, "symlink", 1));
+
+	/* Delete the `origin` repo (if it exists) so we can recreate it. */
+	git_remote_delete(repo, GIT_REMOTE_ORIGIN);
 
 	cl_git_pass(git_remote_create(&origin, repo, GIT_REMOTE_ORIGIN, url));
 	cl_git_pass(git_remote_fetch(origin, NULL, NULL, NULL));
@@ -159,30 +223,83 @@ void test_checkout_index__honor_coresymlinks_default(void)
 
 	cl_git_pass(git_revparse_single(&target, repo, "remotes/origin/master"));
 	cl_git_pass(git_reset(repo, target, GIT_RESET_HARD, NULL));
+
 	git_object_free(target);
 	git_repository_free(repo);
+	git_buf_dispose(&path);
+}
+
+void test_checkout_index__honor_coresymlinks_default_true(void)
+{
+	char link_data[GIT_PATH_MAX];
+	int link_size = GIT_PATH_MAX;
+
+	cl_must_pass(p_mkdir("symlink", 0777));
+
+	if (!git_path_supports_symlinks("symlink/test"))
+		cl_skip();
 
 #ifdef GIT_WIN32
-	check_file_contents("./symlink/link_to_new.txt", "new.txt");
-#else
-	{
-		char link_data[1024];
-		size_t link_size = 1024;
-
-		link_size = p_readlink("./symlink/link_to_new.txt", link_data, link_size);
-		link_data[link_size] = '\0';
-		cl_assert_equal_i(link_size, strlen("new.txt"));
-		cl_assert_equal_s(link_data, "new.txt");
-		check_file_contents("./symlink/link_to_new.txt", "my new file\n");
-	}
+	/*
+	 * Windows explicitly requires the global configuration to have
+	 * core.symlinks=true in addition to actual filesystem support.
+	 */
+	create_tmp_global_config("tmp_global_path", "core.symlinks", "true");
 #endif
 
-	cl_fixture_cleanup("symlink");
+	populate_symlink_workdir();
+
+	link_size = p_readlink("./symlink/link_to_new.txt", link_data, link_size);
+	cl_assert(link_size >= 0);
+
+	link_data[link_size] = '\0';
+	cl_assert_equal_i(link_size, strlen("new.txt"));
+	cl_assert_equal_s(link_data, "new.txt");
+	check_file_contents("./symlink/link_to_new.txt", "my new file\n");
+}
+
+void test_checkout_index__honor_coresymlinks_default_false(void)
+{
+	cl_must_pass(p_mkdir("symlink", 0777));
+
+#ifndef GIT_WIN32
+	/*
+	 * This test is largely for Windows platforms to ensure that
+	 * we respect an unset core.symlinks even when the platform
+	 * supports symlinks.  Bail entirely on POSIX platforms that
+	 * do support symlinks.
+	 */
+	if (git_path_supports_symlinks("symlink/test"))
+		cl_skip();
+#endif
+
+	populate_symlink_workdir();
+	check_file_contents("./symlink/link_to_new.txt", "new.txt");
+}
+
+void test_checkout_index__coresymlinks_set_to_true_fails_when_unsupported(void)
+{
+	git_checkout_options opts = GIT_CHECKOUT_OPTIONS_INIT;
+
+	if (git_path_supports_symlinks("testrepo/test")) {
+		cl_skip();
+	}
+
+	cl_repo_set_bool(g_repo, "core.symlinks", true);
+
+	opts.checkout_strategy = GIT_CHECKOUT_SAFE | GIT_CHECKOUT_RECREATE_MISSING;
+	cl_git_fail(git_checkout_index(g_repo, NULL, &opts));
 }
 
 void test_checkout_index__honor_coresymlinks_setting_set_to_true(void)
 {
 	git_checkout_options opts = GIT_CHECKOUT_OPTIONS_INIT;
+	char link_data[GIT_PATH_MAX];
+	size_t link_size = GIT_PATH_MAX;
+
+	if (!git_path_supports_symlinks("testrepo/test")) {
+		cl_skip();
+	}
 
 	cl_repo_set_bool(g_repo, "core.symlinks", true);
 
@@ -190,20 +307,11 @@ void test_checkout_index__honor_coresymlinks_setting_set_to_true(void)
 
 	cl_git_pass(git_checkout_index(g_repo, NULL, &opts));
 
-#ifdef GIT_WIN32
-	check_file_contents("./testrepo/link_to_new.txt", "new.txt");
-#else
-	{
-		char link_data[1024];
-		size_t link_size = 1024;
-
-		link_size = p_readlink("./testrepo/link_to_new.txt", link_data, link_size);
-		link_data[link_size] = '\0';
-		cl_assert_equal_i(link_size, strlen("new.txt"));
-		cl_assert_equal_s(link_data, "new.txt");
-		check_file_contents("./testrepo/link_to_new.txt", "my new file\n");
-	}
-#endif
+	link_size = p_readlink("./testrepo/link_to_new.txt", link_data, link_size);
+	link_data[link_size] = '\0';
+	cl_assert_equal_i(link_size, strlen("new.txt"));
+	cl_assert_equal_s(link_data, "new.txt");
+	check_file_contents("./testrepo/link_to_new.txt", "my new file\n");
 }
 
 void test_checkout_index__honor_coresymlinks_setting_set_to_false(void)
@@ -474,7 +582,7 @@ void test_checkout_index__can_overcome_name_clashes(void)
 	cl_assert(git_path_isfile("./testrepo/path0/file0"));
 
 	opts.checkout_strategy =
-		GIT_CHECKOUT_SAFE | 
+		GIT_CHECKOUT_SAFE |
 		GIT_CHECKOUT_RECREATE_MISSING |
 		GIT_CHECKOUT_ALLOW_CONFLICTS;
 	cl_git_pass(git_checkout_index(g_repo, index, &opts));
@@ -499,15 +607,15 @@ void test_checkout_index__validates_struct_version(void)
 	opts.version = 1024;
 	cl_git_fail(git_checkout_index(g_repo, NULL, &opts));
 
-	err = giterr_last();
-	cl_assert_equal_i(err->klass, GITERR_INVALID);
+	err = git_error_last();
+	cl_assert_equal_i(err->klass, GIT_ERROR_INVALID);
 
 	opts.version = 0;
-	giterr_clear();
+	git_error_clear();
 	cl_git_fail(git_checkout_index(g_repo, NULL, &opts));
 
-	err = giterr_last();
-	cl_assert_equal_i(err->klass, GITERR_INVALID);
+	err = git_error_last();
+	cl_assert_equal_i(err->klass, GIT_ERROR_INVALID);
 }
 
 void test_checkout_index__can_update_prefixed_files(void)
@@ -547,9 +655,9 @@ void test_checkout_index__can_update_prefixed_files(void)
 
 void test_checkout_index__can_checkout_a_newly_initialized_repository(void)
 {
-	test_checkout_index__cleanup();
-
+	cl_git_sandbox_cleanup();
 	g_repo = cl_git_sandbox_init("empty_standard_repo");
+
 	cl_git_remove_placeholders(git_repository_path(g_repo), "dummy-marker.txt");
 
 	cl_git_pass(git_checkout_index(g_repo, NULL, NULL));
@@ -559,8 +667,7 @@ void test_checkout_index__issue_1397(void)
 {
 	git_checkout_options opts = GIT_CHECKOUT_OPTIONS_INIT;
 
-	test_checkout_index__cleanup();
-
+	cl_git_sandbox_cleanup();
 	g_repo = cl_git_sandbox_init("issue_1397");
 
 	cl_repo_set_bool(g_repo, "core.autocrlf", true);
@@ -613,8 +720,7 @@ void test_checkout_index__target_directory_from_bare(void)
 	checkout_counts cts;
 	memset(&cts, 0, sizeof(cts));
 
-	test_checkout_index__cleanup();
-
+	cl_git_sandbox_cleanup();
 	g_repo = cl_git_sandbox_init("testrepo.git");
 	cl_assert(git_repository_is_bare(g_repo));
 
@@ -686,15 +792,15 @@ static void add_conflict(git_index *index, const char *path)
 	entry.path = path;
 
 	git_oid_fromstr(&entry.id, "d427e0b2e138501a3d15cc376077a3631e15bd46");
-	GIT_IDXENTRY_STAGE_SET(&entry, 1);
+	GIT_INDEX_ENTRY_STAGE_SET(&entry, 1);
 	cl_git_pass(git_index_add(index, &entry));
 
 	git_oid_fromstr(&entry.id, "4e886e602529caa9ab11d71f86634bd1b6e0de10");
-	GIT_IDXENTRY_STAGE_SET(&entry, 2);
+	GIT_INDEX_ENTRY_STAGE_SET(&entry, 2);
 	cl_git_pass(git_index_add(index, &entry));
 
 	git_oid_fromstr(&entry.id, "2bd0a343aeef7a2cf0d158478966a6e587ff3863");
-	GIT_IDXENTRY_STAGE_SET(&entry, 3);
+	GIT_INDEX_ENTRY_STAGE_SET(&entry, 3);
 	cl_git_pass(git_index_add(index, &entry));
 }
 
@@ -718,7 +824,7 @@ void test_checkout_index__writes_conflict_file(void)
 		"=======\n"
 		"this file is changed in branch and master\n"
 		">>>>>>> theirs\n") == 0);
-	git_buf_free(&conflicting_buf);
+	git_buf_dispose(&conflicting_buf);
 
 	git_index_free(index);
 }
@@ -768,7 +874,7 @@ void test_checkout_index__conflicts_honor_coreautocrlf(void)
 		"=======\r\n"
 		"this file is changed in branch and master\r\n"
 		">>>>>>> theirs\r\n") == 0);
-	git_buf_free(&conflicting_buf);
+	git_buf_dispose(&conflicting_buf);
 
 	git_index_free(index);
 #endif

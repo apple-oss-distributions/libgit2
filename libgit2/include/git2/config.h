@@ -64,8 +64,9 @@ typedef enum {
 typedef struct git_config_entry {
 	const char *name; /**< Name of the entry (normalised) */
 	const char *value; /**< String value of the entry */
+	unsigned int include_depth; /**< Depth of includes where this variable was found */
 	git_config_level_t level; /**< Which config file this was found in */
-	void (*free)(struct git_config_entry *entry); /**< Free function for this entry */
+	void GIT_CALLBACK(free)(struct git_config_entry *entry); /**< Free function for this entry */
 	void *payload; /**< Opaque value for the free function. Do not read or write */
 } git_config_entry;
 
@@ -74,27 +75,37 @@ typedef struct git_config_entry {
  */
 GIT_EXTERN(void) git_config_entry_free(git_config_entry *);
 
-typedef int  (*git_config_foreach_cb)(const git_config_entry *, void *);
+/**
+ * A config enumeration callback
+ *
+ * @param entry the entry currently being enumerated
+ * @param payload a user-specified pointer
+ */
+typedef int GIT_CALLBACK(git_config_foreach_cb)(const git_config_entry *entry, void *payload);
+
+/**
+ * An opaque structure for a configuration iterator
+ */
 typedef struct git_config_iterator git_config_iterator;
 
 /**
  * Config var type
  */
 typedef enum {
-	GIT_CVAR_FALSE = 0,
-	GIT_CVAR_TRUE = 1,
-	GIT_CVAR_INT32,
-	GIT_CVAR_STRING
-} git_cvar_t;
+	GIT_CONFIGMAP_FALSE = 0,
+	GIT_CONFIGMAP_TRUE = 1,
+	GIT_CONFIGMAP_INT32,
+	GIT_CONFIGMAP_STRING
+} git_configmap_t;
 
 /**
  * Mapping from config variables to values.
  */
 typedef struct {
-	git_cvar_t cvar_type;
+	git_configmap_t type;
 	const char *str_match;
 	int map_value;
-} git_cvar_map;
+} git_configmap;
 
 /**
  * Locate the path to the global configuration file
@@ -251,8 +262,8 @@ GIT_EXTERN(int) git_config_open_level(
  * Open the global/XDG configuration file according to git's rules
  *
  * Git allows you to store your global configuration at
- * `$HOME/.config` or `$XDG_CONFIG_HOME/git/config`. For backwards
- * compatability, the XDG file shouldn't be used unless the use has
+ * `$HOME/.gitconfig` or `$XDG_CONFIG_HOME/git/config`. For backwards
+ * compatibility, the XDG file shouldn't be used unless the use has
  * created it explicitly. With this function you'll open the correct
  * one to write to.
  *
@@ -580,7 +591,7 @@ GIT_EXTERN(int) git_config_iterator_glob_new(git_config_iterator **out, const gi
 /**
  * Perform an operation on each config variable matching a regular expression.
  *
- * This behaviors like `git_config_foreach` with an additional filter of a
+ * This behaves like `git_config_foreach` with an additional filter of a
  * regular expression that filters which config keys are passed to the
  * callback.
  *
@@ -612,7 +623,7 @@ GIT_EXTERN(int) git_config_foreach_match(
  *
  * A mapping array looks as follows:
  *
- *	git_cvar_map autocrlf_mapping[] = {
+ *	git_configmap autocrlf_mapping[] = {
  *		{GIT_CVAR_FALSE, NULL, GIT_AUTO_CRLF_FALSE},
  *		{GIT_CVAR_TRUE, NULL, GIT_AUTO_CRLF_TRUE},
  *		{GIT_CVAR_STRING, "input", GIT_AUTO_CRLF_INPUT},
@@ -633,7 +644,7 @@ GIT_EXTERN(int) git_config_foreach_match(
  * @param out place to store the result of the mapping
  * @param cfg config file to get the variables from
  * @param name name of the config variable to lookup
- * @param maps array of `git_cvar_map` objects specifying the possible mappings
+ * @param maps array of `git_configmap` objects specifying the possible mappings
  * @param map_n number of mapping objects in `maps`
  * @return 0 on success, error code otherwise
  */
@@ -641,20 +652,20 @@ GIT_EXTERN(int) git_config_get_mapped(
 	int *out,
 	const git_config *cfg,
 	const char *name,
-	const git_cvar_map *maps,
+	const git_configmap *maps,
 	size_t map_n);
 
 /**
  * Maps a string value to an integer constant
  *
  * @param out place to store the result of the parsing
- * @param maps array of `git_cvar_map` objects specifying the possible mappings
+ * @param maps array of `git_configmap` objects specifying the possible mappings
  * @param map_n number of mapping objects in `maps`
  * @param value value to parse
  */
 GIT_EXTERN(int) git_config_lookup_map_value(
 	int *out,
-	const git_cvar_map *maps,
+	const git_configmap *maps,
 	size_t map_n,
 	const char *value);
 
@@ -710,11 +721,11 @@ GIT_EXTERN(int) git_config_parse_int64(int64_t *out, const char *value);
 GIT_EXTERN(int) git_config_parse_path(git_buf *out, const char *value);
 
 /**
- * Perform an operation on each config variable in given config backend
+ * Perform an operation on each config variable in a given config backend,
  * matching a regular expression.
  *
- * This behaviors like `git_config_foreach_match` except instead of all config
- * entries it just enumerates through the given backend entry.
+ * This behaves like `git_config_foreach_match` except that only config
+ * entries from the given backend entry are enumerated.
  *
  * The regular expression is applied case-sensitively on the normalized form of
  * the variable name: the section and variable parts are lower-cased. The

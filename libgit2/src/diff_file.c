@@ -12,7 +12,7 @@
 #include "diff.h"
 #include "diff_generate.h"
 #include "odb.h"
-#include "fileops.h"
+#include "futils.h"
 #include "filter.h"
 
 #define DIFF_MAX_FILESIZE 0x20000000
@@ -50,8 +50,8 @@ static int diff_file_content_init_common(
 		fc->opts_max_size = opts->max_size ?
 			opts->max_size : DIFF_MAX_FILESIZE;
 
-	if (fc->src == GIT_ITERATOR_TYPE_EMPTY)
-		fc->src = GIT_ITERATOR_TYPE_TREE;
+	if (fc->src == GIT_ITERATOR_EMPTY)
+		fc->src = GIT_ITERATOR_TREE;
 
 	if (!fc->driver &&
 		git_diff_driver_lookup(&fc->driver, fc->repo,
@@ -62,7 +62,7 @@ static int diff_file_content_init_common(
 	git_diff_driver_update_options(&fc->opts_flags, fc->driver);
 
 	/* make sure file is conceivable mmap-able */
-	if ((git_off_t)((size_t)fc->file->size) != fc->file->size)
+	if ((size_t)fc->file->size != fc->file->size)
 		fc->file->flags |= GIT_DIFF_FLAG_BINARY;
 	/* check if user is forcing text diff the file */
 	else if (fc->opts_flags & GIT_DIFF_FORCE_TEXT) {
@@ -160,8 +160,10 @@ int git_diff_file_content__init_from_src(
 
 			fc->flags |= GIT_DIFF_FLAG__FREE_BLOB;
 		} else {
+			int error;
+			if ((error = git_odb_hash(&fc->file->id, src->buf, src->buflen, GIT_OBJECT_BLOB)) < 0)
+				return error;
 			fc->file->size = src->buflen;
-			git_odb_hash(&fc->file->id, src->buf, src->buflen, GIT_OBJ_BLOB);
 			fc->file->id_abbrev = GIT_OID_HEXSZ;
 
 			fc->map.len  = src->buflen;
@@ -188,7 +190,7 @@ static int diff_file_content_commit_to_str(
 		if ((error = git_submodule_lookup(&sm, fc->repo, fc->file->path)) < 0) {
 			/* GIT_EEXISTS means a "submodule" that has not been git added */
 			if (error == GIT_EEXISTS) {
-				giterr_clear();
+				git_error_clear();
 				error = 0;
 			}
 			return error;
@@ -232,7 +234,7 @@ static int diff_file_content_load_blob(
 	int error = 0;
 	git_odb_object *odb_obj = NULL;
 
-	if (git_oid_iszero(&fc->file->id))
+	if (git_oid_is_zero(&fc->file->id))
 		return 0;
 
 	if (fc->file->mode == GIT_FILEMODE_COMMIT)
@@ -251,7 +253,7 @@ static int diff_file_content_load_blob(
 
 	if (odb_obj != NULL) {
 		error = git_object__from_odb_object(
-			(git_object **)&fc->blob, fc->repo, odb_obj, GIT_OBJ_BLOB);
+			(git_object **)&fc->blob, fc->repo, odb_obj, GIT_OBJECT_BLOB);
 		git_odb_object_free(odb_obj);
 	} else {
 		error = git_blob_lookup(
@@ -280,7 +282,7 @@ static int diff_file_content_load_workdir_symlink_fake(
 	fc->map.data = git_buf_detach(&target);
 	fc->flags |= GIT_DIFF_FLAG__FREE_DATA;
 
-	git_buf_free(&target);
+	git_buf_dispose(&target);
 	return error;
 }
 
@@ -290,8 +292,8 @@ static int diff_file_content_load_workdir_symlink(
 	ssize_t alloc_len, read_len;
 	int symlink_supported, error;
 
-	if ((error = git_repository__cvar(
-		&symlink_supported, fc->repo, GIT_CVAR_SYMLINKS)) < 0)
+	if ((error = git_repository__configmap_lookup(
+		&symlink_supported, fc->repo, GIT_CONFIGMAP_SYMLINKS)) < 0)
 		return -1;
 
 	if (!symlink_supported)
@@ -303,13 +305,13 @@ static int diff_file_content_load_workdir_symlink(
 	alloc_len = (ssize_t)(fc->file->size * 2) + 1;
 
 	fc->map.data = git__calloc(alloc_len, sizeof(char));
-	GITERR_CHECK_ALLOC(fc->map.data);
+	GIT_ERROR_CHECK_ALLOC(fc->map.data);
 
 	fc->flags |= GIT_DIFF_FLAG__FREE_DATA;
 
 	read_len = p_readlink(git_buf_cstr(path), fc->map.data, alloc_len);
 	if (read_len < 0) {
-		giterr_set(GITERR_OS, "failed to read symlink '%s'", fc->file->path);
+		git_error_set(GIT_ERROR_OS, "failed to read symlink '%s'", fc->file->path);
 		return -1;
 	}
 
@@ -330,8 +332,10 @@ static int diff_file_content_load_workdir_file(
 	if (fd < 0)
 		return fd;
 
-	if (!fc->file->size &&
-		!(fc->file->size = git_futils_filesize(fd)))
+	if (!fc->file->size)
+	    error = git_futils_filesize(&fc->file->size, fd);
+
+	if (error < 0 || !fc->file->size)
 		goto cleanup;
 
 	if ((diff_opts->flags & GIT_DIFF_SHOW_BINARY) == 0 &&
@@ -352,16 +356,13 @@ static int diff_file_content_load_workdir_file(
 		}
 
 		/* if mmap failed, fall through to try readbuffer below */
-		giterr_clear();
+		git_error_clear();
 	}
 
 	if (!(error = git_futils_readbuffer_fd(&raw, fd, (size_t)fc->file->size))) {
 		git_buf out = GIT_BUF_INIT;
 
-		error = git_filter_list_apply_to_data(&out, fl, &raw);
-
-		if (out.ptr != raw.ptr)
-			git_buf_free(&raw);
+		error = git_filter_list__convert_buf(&out, fl, &raw);
 
 		if (!error) {
 			fc->map.len  = out.size;
@@ -390,8 +391,7 @@ static int diff_file_content_load_workdir(
 	if (fc->file->mode == GIT_FILEMODE_TREE)
 		return 0;
 
-	if (git_buf_joinpath(
-			&path, git_repository_workdir(fc->repo), fc->file->path) < 0)
+	if (git_repository_workdir_path(&path, fc->repo, fc->file->path) < 0)
 		return -1;
 
 	if (S_ISLNK(fc->file->mode))
@@ -402,11 +402,11 @@ static int diff_file_content_load_workdir(
 	/* once data is loaded, update OID if we didn't have it previously */
 	if (!error && (fc->file->flags & GIT_DIFF_FLAG_VALID_ID) == 0) {
 		error = git_odb_hash(
-			&fc->file->id, fc->map.data, fc->map.len, GIT_OBJ_BLOB);
+			&fc->file->id, fc->map.data, fc->map.len, GIT_OBJECT_BLOB);
 		fc->file->flags |= GIT_DIFF_FLAG_VALID_ID;
 	}
 
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 	return error;
 }
 
@@ -423,7 +423,7 @@ int git_diff_file_content__load(
 		(diff_opts->flags & GIT_DIFF_SHOW_BINARY) == 0)
 		return 0;
 
-	if (fc->src == GIT_ITERATOR_TYPE_WORKDIR)
+	if (fc->src == GIT_ITERATOR_WORKDIR)
 		error = diff_file_content_load_workdir(fc, diff_opts);
 	else
 		error = diff_file_content_load_blob(fc, diff_opts);

@@ -1,5 +1,5 @@
 #include "clar_libgit2.h"
-#include "fileops.h"
+#include "futils.h"
 #include "refs.h"
 #include "tree.h"
 #include "merge_helpers.h"
@@ -43,7 +43,7 @@ int merge_trees_from_branches(
 
 	error = git_merge_trees(index, repo, ancestor_tree, our_tree, their_tree, opts);
 
-	git_buf_free(&branch_buf);
+	git_buf_dispose(&branch_buf);
 	git_tree_free(our_tree);
 	git_tree_free(their_tree);
 	git_tree_free(ancestor_tree);
@@ -75,7 +75,7 @@ int merge_commits_from_branches(
 
 	error = git_merge_commits(index, repo, our_commit, their_commit, opts);
 
-	git_buf_free(&branch_buf);
+	git_buf_dispose(&branch_buf);
 	git_commit_free(our_commit);
 	git_commit_free(their_commit);
 
@@ -352,14 +352,14 @@ int merge_test_workdir(git_repository *repo, const struct merge_index_entry expe
 		return 0;
 
 	for (i = 0; i < expected_len; i++) {
-		git_blob_create_fromworkdir(&actual_oid, repo, expected[i].path);
+		git_blob_create_from_workdir(&actual_oid, repo, expected[i].path);
 		git_oid_fromstr(&expected_oid, expected[i].oid_str);
 
 		if (git_oid_cmp(&actual_oid, &expected_oid) != 0)
 			return 0;
 	}
 
-	git_buf_free(&wd);
+	git_buf_dispose(&wd);
 
 	return 1;
 }

@@ -197,6 +197,31 @@ void test_revwalk_basic__push_head(void)
 	cl_assert_equal_i(i, 7);
 }
 
+void test_revwalk_basic__sorted_after_reset(void)
+{
+	int i = 0;
+	git_oid oid;
+
+	revwalk_basic_setup_walk(NULL);
+
+	git_oid_fromstr(&oid, commit_head);
+
+	/* push, sort, and test the walk */
+	cl_git_pass(git_revwalk_push(_walk, &oid));
+	git_revwalk_sorting(_walk, GIT_SORT_TIME);
+
+	cl_git_pass(test_walk_only(_walk, commit_sorting_time, 2));
+
+	/* reset, push, and test again - we should see all entries */
+	git_revwalk_reset(_walk);
+	cl_git_pass(git_revwalk_push(_walk, &oid));
+
+	while (git_revwalk_next(&oid, _walk) == 0)
+		i++;
+
+	cl_assert_equal_i(i, commit_count);
+}
+
 void test_revwalk_basic__push_head_hide_ref(void)
 {
 	int i = 0;
@@ -267,9 +292,9 @@ void test_revwalk_basic__multiple_push_1(void)
 }
 
 /*
-* Difference between test_revwalk_basic__multiple_push_1 and 
+* Difference between test_revwalk_basic__multiple_push_1 and
 * test_revwalk_basic__multiple_push_2 is in the order reference
-* refs/heads/packed-test and commit 5b5b02 are pushed. 
+* refs/heads/packed-test and commit 5b5b02 are pushed.
 * revwalk should return same commits in both the tests.
 
 * $ git rev-list 5b5b02 HEAD ^refs/heads/packed-test
@@ -373,6 +398,24 @@ void test_revwalk_basic__push_range(void)
 	git_revwalk_sorting(_walk, 0);
 	cl_git_pass(git_revwalk_push_range(_walk, "9fd738e~2..9fd738e"));
 	cl_git_pass(test_walk_only(_walk, commit_sorting_segment, 2));
+}
+
+void test_revwalk_basic__push_range_merge_base(void)
+{
+	revwalk_basic_setup_walk(NULL);
+
+	git_revwalk_reset(_walk);
+	git_revwalk_sorting(_walk, 0);
+	cl_git_fail_with(GIT_EINVALIDSPEC, git_revwalk_push_range(_walk, "HEAD...HEAD~2"));
+}
+
+void test_revwalk_basic__push_range_no_range(void)
+{
+	revwalk_basic_setup_walk(NULL);
+
+	git_revwalk_reset(_walk);
+	git_revwalk_sorting(_walk, 0);
+	cl_git_fail_with(GIT_EINVALIDSPEC, git_revwalk_push_range(_walk, "HEAD"));
 }
 
 void test_revwalk_basic__push_mixed(void)
@@ -484,10 +527,10 @@ void test_revwalk_basic__big_timestamp(void)
 	revwalk_basic_setup_walk("testrepo.git");
 
 	cl_git_pass(git_repository_head(&head, _repo));
-	cl_git_pass(git_reference_peel((git_object **) &tip, head, GIT_OBJ_COMMIT));
+	cl_git_pass(git_reference_peel((git_object **) &tip, head, GIT_OBJECT_COMMIT));
 
 	/* Commit with a far-ahead timestamp, we should be able to parse it in the revwalk */
-	cl_git_pass(git_signature_new(&sig, "Joe", "joe@example.com", 2399662595, 0));
+	cl_git_pass(git_signature_new(&sig, "Joe", "joe@example.com", INT64_C(2399662595), 0));
 	cl_git_pass(git_commit_tree(&tree, tip));
 
 	cl_git_pass(git_commit_create(&id, _repo, "HEAD", sig, sig, NULL, "some message", tree, 1,

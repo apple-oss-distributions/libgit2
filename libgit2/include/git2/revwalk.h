@@ -25,15 +25,15 @@ GIT_BEGIN_DECL
  */
 typedef enum {
 	/**
-	 * Sort the output with the same default time-order method from git.
-	 * This is the default sorting for new walkers.
+	 * Sort the output with the same default method from `git`: reverse
+	 * chronological order. This is the default sorting for new walkers.
 	 */
 	GIT_SORT_NONE = 0,
 
 	/**
-	 * Sort the repository contents in topological order (parents before
-	 * children); this sorting mode can be combined with time sorting to
-	 * produce git's "time-order".
+	 * Sort the repository contents in topological order (no parents before
+	 * all of its children are shown); this sorting mode can be combined
+	 * with time sorting to produce `git`'s `--date-order``.
 	 */
 	GIT_SORT_TOPOLOGICAL = 1 << 0,
 
@@ -84,8 +84,9 @@ GIT_EXTERN(int) git_revwalk_new(git_revwalk **out, git_repository *repo);
  * is over.
  *
  * @param walker handle to reset.
+ * @return 0 or an error code
  */
-GIT_EXTERN(void) git_revwalk_reset(git_revwalk *walker);
+GIT_EXTERN(int) git_revwalk_reset(git_revwalk *walker);
 
 /**
  * Add a new root for the traversal
@@ -224,8 +225,9 @@ GIT_EXTERN(int) git_revwalk_next(git_oid *out, git_revwalk *walk);
  *
  * @param walk the walker being used for the traversal.
  * @param sort_mode combination of GIT_SORT_XXX flags
+ * @return 0 or an error code
  */
-GIT_EXTERN(void) git_revwalk_sorting(git_revwalk *walk, unsigned int sort_mode);
+GIT_EXTERN(int) git_revwalk_sorting(git_revwalk *walk, unsigned int sort_mode);
 
 /**
  * Push and hide the respective endpoints of the given range.
@@ -246,8 +248,10 @@ GIT_EXTERN(int) git_revwalk_push_range(git_revwalk *walk, const char *range);
  * Simplify the history by first-parent
  *
  * No parents other than the first for each commit will be enqueued.
+ *
+ * @return 0 or an error code
  */
-GIT_EXTERN(void) git_revwalk_simplify_first_parent(git_revwalk *walk);
+GIT_EXTERN(int) git_revwalk_simplify_first_parent(git_revwalk *walk);
 
 
 /**
@@ -274,12 +278,12 @@ GIT_EXTERN(git_repository *) git_revwalk_repository(git_revwalk *walk);
  * @param commit_id oid of Commit
  * @param payload User-specified pointer to data to be passed as data payload
  */
-typedef int(*git_revwalk_hide_cb)(
+typedef int GIT_CALLBACK(git_revwalk_hide_cb)(
 	const git_oid *commit_id,
 	void *payload);
 
 /**
- * Adds a callback function to hide a commit and its parents
+ * Adds, changes or removes a callback function to hide a commit and its parents
  *
  * @param walk the revision walker
  * @param hide_cb  callback function to hide a commit and its parents

@@ -1,4 +1,8 @@
-static char _clar_path[4096];
+#ifdef __APPLE__
+#include <sys/syslimits.h>
+#endif
+
+static char _clar_path[4096 + 1];
 
 static int
 is_valid_tmp_path(const char *path)
@@ -31,14 +35,24 @@ find_tmp_path(char *buffer, size_t length)
 			continue;
 
 		if (is_valid_tmp_path(env)) {
-			strncpy(buffer, env, length);
+#ifdef __APPLE__
+			if (length >= PATH_MAX && realpath(env, buffer) != NULL)
+				return 0;
+#endif
+			strncpy(buffer, env, length - 1);
+			buffer[length - 1] = '\0';
 			return 0;
 		}
 	}
 
 	/* If the environment doesn't say anything, try to use /tmp */
 	if (is_valid_tmp_path("/tmp")) {
-		strncpy(buffer, "/tmp", length);
+#ifdef __APPLE__
+		if (length >= PATH_MAX && realpath("/tmp", buffer) != NULL)
+			return 0;
+#endif
+		strncpy(buffer, "/tmp", length - 1);
+		buffer[length - 1] = '\0';
 		return 0;
 	}
 
@@ -53,7 +67,8 @@ find_tmp_path(char *buffer, size_t length)
 
 	/* This system doesn't like us, try to use the current directory */
 	if (is_valid_tmp_path(".")) {
-		strncpy(buffer, ".", length);
+		strncpy(buffer, ".", length - 1);
+		buffer[length - 1] = '\0';
 		return 0;
 	}
 

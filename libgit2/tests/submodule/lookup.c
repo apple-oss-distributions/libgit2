@@ -2,7 +2,7 @@
 #include "submodule_helpers.h"
 #include "git2/sys/repository.h"
 #include "repository.h"
-#include "fileops.h"
+#include "futils.h"
 
 static git_repository *g_repo = NULL;
 
@@ -40,6 +40,46 @@ void test_submodule_lookup__simple_lookup(void)
 
 	/* lookup a submodule by path with a trailing slash */
 	assert_submodule_exists(g_repo, "sm_added_and_uncommited/");
+}
+
+void test_submodule_lookup__can_be_dupped(void)
+{
+	git_submodule *sm;
+	git_submodule *sm_duplicate;
+	const char *oid = "480095882d281ed676fe5b863569520e54a7d5c0";
+
+	/* Check original */
+	cl_git_pass(git_submodule_lookup(&sm, g_repo, "sm_unchanged"));
+	cl_assert(git_submodule_owner(sm) == g_repo);
+	cl_assert_equal_s("sm_unchanged", git_submodule_name(sm));
+	cl_assert(git__suffixcmp(git_submodule_path(sm), "sm_unchanged") == 0);
+	cl_assert(git__suffixcmp(git_submodule_url(sm), "/submod2_target") == 0);
+
+	cl_assert(git_oid_streq(git_submodule_index_id(sm), oid) == 0);
+	cl_assert(git_oid_streq(git_submodule_head_id(sm), oid) == 0);
+	cl_assert(git_oid_streq(git_submodule_wd_id(sm), oid) == 0);
+
+	cl_assert(git_submodule_ignore(sm) == GIT_SUBMODULE_IGNORE_NONE);
+	cl_assert(git_submodule_update_strategy(sm) == GIT_SUBMODULE_UPDATE_CHECKOUT);
+
+	/* Duplicate and free original */
+	cl_assert(git_submodule_dup(&sm_duplicate, sm) == 0);
+	git_submodule_free(sm);
+
+	/* Check duplicate */
+	cl_assert(git_submodule_owner(sm_duplicate) == g_repo);
+	cl_assert_equal_s("sm_unchanged", git_submodule_name(sm_duplicate));
+	cl_assert(git__suffixcmp(git_submodule_path(sm_duplicate), "sm_unchanged") == 0);
+	cl_assert(git__suffixcmp(git_submodule_url(sm_duplicate), "/submod2_target") == 0);
+
+	cl_assert(git_oid_streq(git_submodule_index_id(sm_duplicate), oid) == 0);
+	cl_assert(git_oid_streq(git_submodule_head_id(sm_duplicate), oid) == 0);
+	cl_assert(git_oid_streq(git_submodule_wd_id(sm_duplicate), oid) == 0);
+
+	cl_assert(git_submodule_ignore(sm_duplicate) == GIT_SUBMODULE_IGNORE_NONE);
+	cl_assert(git_submodule_update_strategy(sm_duplicate) == GIT_SUBMODULE_UPDATE_CHECKOUT);
+
+	git_submodule_free(sm_duplicate);
 }
 
 void test_submodule_lookup__accessors(void)
@@ -195,7 +235,7 @@ void test_submodule_lookup__backslashes(void)
 
 	cl_git_pass(git_submodule_resolve_url(&buf, g_repo, backslashed_path));
 
-	git_buf_free(&buf);
+	git_buf_dispose(&buf);
 	git_submodule_free(sm);
 	git_repository_free(subrepo);
 }
@@ -227,7 +267,7 @@ static void add_submodule_with_commit(const char *name)
 
 	cl_git_pass(git_buf_joinpath(&p, git_repository_workdir(smrepo), "file"));
 	cl_git_mkfile(p.ptr, "new file");
-	git_buf_free(&p);
+	git_buf_dispose(&p);
 
 	cl_git_pass(git_index_add_bypath(idx, "file"));
 	cl_git_pass(git_index_write(idx));
@@ -293,7 +333,7 @@ void test_submodule_lookup__just_added(void)
 	baseline_tests();
 
 	cl_git_rewritefile("submod2/.gitmodules", snap2.ptr);
-	git_buf_free(&snap2);
+	git_buf_dispose(&snap2);
 
 	refute_submodule_exists(g_repo, "mismatch_name", GIT_ENOTFOUND);
 	refute_submodule_exists(g_repo, "mismatch_path", GIT_ENOTFOUND);
@@ -304,7 +344,7 @@ void test_submodule_lookup__just_added(void)
 	baseline_tests();
 
 	cl_git_rewritefile("submod2/.gitmodules", snap1.ptr);
-	git_buf_free(&snap1);
+	git_buf_dispose(&snap1);
 
 	refute_submodule_exists(g_repo, "mismatch_name", GIT_ENOTFOUND);
 	refute_submodule_exists(g_repo, "mismatch_path", GIT_ENOTFOUND);

@@ -4,7 +4,7 @@
 #include "git2/checkout.h"
 #include "repository.h"
 #include "buffer.h"
-#include "fileops.h"
+#include "futils.h"
 
 static const char *repo_name = "nasty";
 static git_repository *repo;
@@ -42,7 +42,7 @@ static void test_checkout_passes(const char *refname, const char *filename)
 	cl_assert(!git_path_exists(path.ptr));
 
 	git_commit_free(commit);
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 }
 
 static void test_checkout_fails(const char *refname, const char *filename)
@@ -63,7 +63,7 @@ static void test_checkout_fails(const char *refname, const char *filename)
 	cl_assert(!git_path_exists(path.ptr));
 
 	git_commit_free(commit);
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 }
 
 /* A tree that contains ".git" as a tree, with a blob inside
@@ -206,9 +206,8 @@ void test_checkout_nasty__dot_git_dot(void)
  */
 void test_checkout_nasty__git_tilde1(void)
 {
-#ifdef GIT_WIN32
 	test_checkout_fails("refs/heads/git_tilde1", ".git/foobar");
-#endif
+	test_checkout_fails("refs/heads/git_tilde1", "git~1/foobar");
 }
 
 /* A tree that contains an entry "git~2", when we have forced the short
@@ -272,6 +271,16 @@ void test_checkout_nasty__dot_git_colon_stuff(void)
 #ifdef GIT_WIN32
 	test_checkout_fails("refs/heads/dot_git_colon_stuff", ".git/foobar");
 #endif
+}
+
+/* A tree that contains an entry ".git::$INDEX_ALLOCATION" because NTFS
+ * will interpret that as a synonym to ".git", even when mounted via SMB
+ * on macOS.
+ */
+void test_checkout_nasty__dotgit_alternate_data_stream(void)
+{
+	test_checkout_fails("refs/heads/dotgit_alternate_data_stream", ".git/dummy-file");
+	test_checkout_fails("refs/heads/dotgit_alternate_data_stream", ".git::$INDEX_ALLOCATION/dummy-file");
 }
 
 /* Trees that contains entries with a tree ".git" that contain

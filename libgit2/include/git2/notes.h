@@ -26,7 +26,7 @@ GIT_BEGIN_DECL
  * - annotated_object_id: Oid of the git object being annotated
  * - payload: Payload data passed to `git_note_foreach`
  */
-typedef int (*git_note_foreach_cb)(
+typedef int GIT_CALLBACK(git_note_foreach_cb)(
 	const git_oid *blob_id, const git_oid *annotated_object_id, void *payload);
 
 /**
@@ -84,8 +84,8 @@ GIT_EXTERN(void) git_note_iterator_free(git_note_iterator *it);
  *         (negative value)
  */
 GIT_EXTERN(int) git_note_next(
-	git_oid* note_id,
-	git_oid* annotated_id,
+	git_oid *note_id,
+	git_oid *annotated_id,
 	git_note_iterator *it);
 
 

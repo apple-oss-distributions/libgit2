@@ -27,7 +27,7 @@
  */
 
 /** Forward declarations of helpers */
-struct opts {
+struct init_opts {
 	int no_options;
 	int quiet;
 	int bare;
@@ -38,15 +38,11 @@ struct opts {
 	const char *dir;
 };
 static void create_initial_commit(git_repository *repo);
-static void parse_opts(struct opts *o, int argc, char *argv[]);
+static void parse_opts(struct init_opts *o, int argc, char *argv[]);
 
-
-int main(int argc, char *argv[])
+int lg2_init(git_repository *repo, int argc, char *argv[])
 {
-	git_repository *repo = NULL;
-	struct opts o = { 1, 0, 0, 0, GIT_REPOSITORY_INIT_SHARED_UMASK, 0, 0, 0 };
-
-	git_libgit2_init();
+	struct init_opts o = { 1, 0, 0, 0, GIT_REPOSITORY_INIT_SHARED_UMASK, 0, 0, 0 };
 
 	parse_opts(&o, argc, argv);
 
@@ -116,7 +112,6 @@ int main(int argc, char *argv[])
 	}
 
 	git_repository_free(repo);
-	git_libgit2_shutdown();
 
 	return 0;
 }
@@ -215,7 +210,7 @@ static uint32_t parse_shared(const char *shared)
 	return 0;
 }
 
-static void parse_opts(struct opts *o, int argc, char *argv[])
+static void parse_opts(struct init_opts *o, int argc, char *argv[])
 {
 	struct args_info args = ARGS_INFO_INIT;
 	const char *sharedarg;
@@ -249,5 +244,5 @@ static void parse_opts(struct opts *o, int argc, char *argv[])
 	}
 
 	if (!o->dir)
-		usage("must specify directory to init", NULL);
+		usage("must specify directory to init", "");
 }

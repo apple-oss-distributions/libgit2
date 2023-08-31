@@ -1,5 +1,5 @@
 #include "clar_libgit2.h"
-#include "fileops.h"
+#include "futils.h"
 #include "ignore.h"
 #include "status_data.h"
 #include "posix.h"
@@ -127,7 +127,7 @@ void test_status_worktree__purged_worktree(void)
 	/* first purge the contents of the worktree */
 	cl_git_pass(git_buf_sets(&workdir, git_repository_workdir(repo)));
 	cl_git_pass(git_path_direach(&workdir, 0, remove_file_cb, NULL));
-	git_buf_free(&workdir);
+	git_buf_dispose(&workdir);
 
 	/* now get status */
 	memset(&counts, 0x0, sizeof(status_entry_counts));
@@ -154,7 +154,7 @@ void test_status_worktree__swap_subdir_and_file(void)
 	bool ignore_case;
 
 	cl_git_pass(git_repository_index(&index, repo));
-	ignore_case = (git_index_caps(index) & GIT_INDEXCAP_IGNORE_CASE) != 0;
+	ignore_case = (git_index_caps(index) & GIT_INDEX_CAPABILITY_IGNORE_CASE) != 0;
 	git_index_free(index);
 
 	/* first alter the contents of the worktree */
@@ -260,7 +260,7 @@ void test_status_worktree__within_subdir(void)
 	pathsArray.strings = paths;
 	opts.pathspec = pathsArray;
 
-	// We committed zzz_new_dir/new_file above. It shouldn't be reported.
+	/* We committed zzz_new_dir/new_file above. It shouldn't be reported. */
 	cl_git_pass(
 		git_status_foreach_ext(repo, &opts, cb_status__normal, &counts)
 	);
@@ -378,7 +378,7 @@ void test_status_worktree__issue_592(void)
 
 	cl_git_pass(git_status_foreach(repo, cb_status__check_592, "l.txt"));
 
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 }
 
 void test_status_worktree__issue_592_2(void)
@@ -393,7 +393,7 @@ void test_status_worktree__issue_592_2(void)
 
 	cl_git_pass(git_status_foreach(repo, cb_status__check_592, "c/a.txt"));
 
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 }
 
 void test_status_worktree__issue_592_3(void)
@@ -409,7 +409,7 @@ void test_status_worktree__issue_592_3(void)
 
 	cl_git_pass(git_status_foreach(repo, cb_status__check_592, "c/a.txt"));
 
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 }
 
 void test_status_worktree__issue_592_4(void)
@@ -424,7 +424,7 @@ void test_status_worktree__issue_592_4(void)
 
 	cl_git_pass(git_status_foreach(repo, cb_status__check_592, "t/b.txt"));
 
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 }
 
 void test_status_worktree__issue_592_5(void)
@@ -440,7 +440,7 @@ void test_status_worktree__issue_592_5(void)
 
 	cl_git_pass(git_status_foreach(repo, cb_status__check_592, NULL));
 
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 }
 
 void test_status_worktree__issue_592_ignores_0(void)
@@ -604,6 +604,45 @@ void test_status_worktree__filemode_changes(void)
 	cl_assert_equal_i(0, counts.wrong_status_flags_count);
 	cl_assert_equal_i(0, counts.wrong_sorted_path);
 }
+
+void test_status_worktree__filemode_non755(void)
+{
+	git_repository *repo = cl_git_sandbox_init("filemodes");
+	status_entry_counts counts;
+	git_status_options opts = GIT_STATUS_OPTIONS_INIT;
+	git_buf executable_path = GIT_BUF_INIT;
+	git_buf nonexecutable_path = GIT_BUF_INIT;
+
+	if (!cl_is_chmod_supported())
+		return;
+
+	opts.flags = GIT_STATUS_OPT_INCLUDE_UNTRACKED |
+		GIT_STATUS_OPT_INCLUDE_IGNORED |
+		GIT_STATUS_OPT_INCLUDE_UNMODIFIED;
+
+	git_buf_joinpath(&executable_path, git_repository_workdir(repo), "exec_on");
+	cl_must_pass(p_chmod(git_buf_cstr(&executable_path), 0744));
+	git_buf_dispose(&executable_path);
+
+	git_buf_joinpath(&nonexecutable_path, git_repository_workdir(repo), "exec_off");
+
+	cl_must_pass(p_chmod(git_buf_cstr(&nonexecutable_path), 0655));
+	git_buf_dispose(&nonexecutable_path);
+
+	memset(&counts, 0, sizeof(counts));
+	counts.expected_entry_count = filemode_count;
+	counts.expected_paths = filemode_paths;
+	counts.expected_statuses = filemode_statuses;
+
+	cl_git_pass(
+		git_status_foreach_ext(repo, &opts, cb_status__normal, &counts)
+	);
+
+	cl_assert_equal_i(counts.expected_entry_count, counts.entry_count);
+	cl_assert_equal_i(0, counts.wrong_status_flags_count);
+	cl_assert_equal_i(0, counts.wrong_sorted_path);
+}
+
 
 static int cb_status__interrupt(const char *p, unsigned int s, void *payload)
 {
@@ -782,8 +821,8 @@ static void assert_ignore_case(
 	cl_assert_equal_i(expected_camel_cased_file_status, status);
 
 	git_repository_free(repo2);
-	git_buf_free(&lower_case_path);
-	git_buf_free(&camel_case_path);
+	git_buf_dispose(&lower_case_path);
+	git_buf_dispose(&camel_case_path);
 }
 
 void test_status_worktree__file_status_honors_core_ignorecase_true(void)
@@ -889,7 +928,7 @@ void test_status_worktree__sorting_by_case(void)
 
 	cl_git_pass(git_repository_index(&index, repo));
 	native_ignore_case =
-		(git_index_caps(index) & GIT_INDEXCAP_IGNORE_CASE) != 0;
+		(git_index_caps(index) & GIT_INDEX_CAPABILITY_IGNORE_CASE) != 0;
 	git_index_free(index);
 
 	memset(&counts, 0, sizeof(counts));
@@ -949,7 +988,7 @@ void test_status_worktree__sorting_by_case(void)
 
 void test_status_worktree__long_filenames(void)
 {
-	char path[260*4+1];
+	char path[260*4+1] = {0};
 	const char *expected_paths[] = {path};
 	const unsigned int expected_statuses[] = {GIT_STATUS_WT_NEW};
 
@@ -957,7 +996,7 @@ void test_status_worktree__long_filenames(void)
 	git_status_options opts = GIT_STATUS_OPTIONS_INIT;
 	status_entry_counts counts = {0};
 
-	// Create directory with amazingly long filename
+	/* Create directory with amazingly long filename */
 	sprintf(path, "empty_standard_repo/%s", longname);
 	cl_git_pass(git_futils_mkdir_r(path, 0777));
 	sprintf(path, "empty_standard_repo/%s/foo", longname);
@@ -1163,7 +1202,7 @@ void test_status_worktree__update_index_with_symlink_doesnt_change_mode(void)
 	opts.flags = GIT_STATUS_OPT_DEFAULTS | GIT_STATUS_OPT_UPDATE_INDEX;
 
 	cl_git_pass(git_repository_head(&head, repo));
-	cl_git_pass(git_reference_peel(&head_object, head, GIT_OBJ_COMMIT));
+	cl_git_pass(git_reference_peel(&head_object, head, GIT_OBJECT_COMMIT));
 
 	cl_git_pass(git_reset(repo, head_object, GIT_RESET_HARD, NULL));
 
@@ -1222,7 +1261,7 @@ void test_status_worktree__with_directory_in_pathlist(void)
 
 	cl_git_pass(git_repository_index(&index, repo));
 	native_ignore_case =
-			(git_index_caps(index) & GIT_INDEXCAP_IGNORE_CASE) != 0;
+			(git_index_caps(index) & GIT_INDEX_CAPABILITY_IGNORE_CASE) != 0;
 	git_index_free(index);
 
 	opts.pathspec.strings = &subdir_path;

@@ -141,7 +141,7 @@ void test_object_tree_write__sorted_subtrees(void)
 	cl_git_pass(git_treebuilder_new(&builder, g_repo, NULL));
 
 	for (i = 0; i < ARRAY_SIZE(entries); ++i) {
-		git_oid *id = entries[i].attr == GIT_FILEMODE_TREE ?  &tid : &bid; 
+		git_oid *id = entries[i].attr == GIT_FILEMODE_TREE ?  &tid : &bid;
 
 		cl_git_pass(git_treebuilder_insert(NULL,
 			builder, entries[i].filename, id, entries[i].attr));
@@ -399,7 +399,7 @@ void test_object_tree_write__cruel_paths(void)
 			cl_git_pass(git_tree_entry_bypath(&te, tree, b.ptr));
 			cl_assert_equal_s(the_paths[j], git_tree_entry_name(te));
 			git_tree_entry_free(te);
-			git_buf_free(&b);
+			git_buf_dispose(&b);
 		}
 	}
 
@@ -418,10 +418,8 @@ void test_object_tree_write__protect_filesystems(void)
 	 */
 	cl_git_pass(git_treebuilder_new(&builder, g_repo, NULL));
 
-#ifndef GIT_WIN32
-	cl_git_pass(git_treebuilder_insert(NULL, builder, ".git.", &bid, GIT_FILEMODE_BLOB));
-	cl_git_pass(git_treebuilder_insert(NULL, builder, "git~1", &bid, GIT_FILEMODE_BLOB));
-#endif
+	cl_git_fail(git_treebuilder_insert(NULL, builder, ".git.", &bid, GIT_FILEMODE_BLOB));
+	cl_git_fail(git_treebuilder_insert(NULL, builder, "git~1", &bid, GIT_FILEMODE_BLOB));
 
 #ifndef __APPLE__
 	cl_git_pass(git_treebuilder_insert(NULL, builder, ".git\xef\xbb\xbf", &bid, GIT_FILEMODE_BLOB));
@@ -444,6 +442,7 @@ void test_object_tree_write__protect_filesystems(void)
 
 	cl_git_fail(git_treebuilder_insert(NULL, builder, ".git\xef\xbb\xbf", &bid, GIT_FILEMODE_BLOB));
 	cl_git_fail(git_treebuilder_insert(NULL, builder, ".git\xe2\x80\xad", &bid, GIT_FILEMODE_BLOB));
+	cl_git_fail(git_treebuilder_insert(NULL, builder, ".git::$INDEX_ALLOCATION/dummy-file", &bid, GIT_FILEMODE_BLOB));
 
 	git_treebuilder_free(builder);
 }
@@ -454,7 +453,8 @@ static void test_invalid_objects(bool should_allow_invalid)
 	git_oid valid_blob_id, invalid_blob_id, valid_tree_id, invalid_tree_id;
 
 #define assert_allowed(expr) \
-	clar__assert(!(expr) == should_allow_invalid, __FILE__, __LINE__, \
+	clar__assert(!(expr) == should_allow_invalid, \
+		__FILE__, __func__, __LINE__, \
 		(should_allow_invalid ? \
 		 "Expected function call to succeed: " #expr : \
 		 "Expected function call to fail: " #expr), \
@@ -520,7 +520,7 @@ void test_object_tree_write__invalid_null_oid(void)
 
 	cl_git_pass(git_treebuilder_new(&bld, g_repo, NULL));
 	cl_git_fail(git_treebuilder_insert(NULL, bld, "null_oid_file", &null_oid, GIT_FILEMODE_BLOB));
-	cl_assert(giterr_last() && strstr(giterr_last()->message, "null OID") != NULL);
+	cl_assert(git_error_last() && strstr(git_error_last()->message, "null OID") != NULL);
 
 	git_treebuilder_free(bld);
 }

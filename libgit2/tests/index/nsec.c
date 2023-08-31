@@ -9,7 +9,7 @@ static git_index *repo_index;
 
 #define TEST_REPO_PATH "nsecs"
 
-// Fixture setup and teardown
+/* Fixture setup and teardown */
 void test_index_nsec__initialize(void)
 {
 	repo = cl_git_sandbox_init("nsecs");
@@ -54,9 +54,9 @@ static bool should_expect_nsecs(void)
 
 	expect = try_create_file_with_nsec_timestamp(nsec_path.ptr);
 
-	p_unlink(nsec_path.ptr);
+	cl_must_pass(p_unlink(nsec_path.ptr));
 
-	git_buf_free(&nsec_path);
+	git_buf_dispose(&nsec_path);
 
 	return expect;
 }

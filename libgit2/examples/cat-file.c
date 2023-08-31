@@ -102,37 +102,33 @@ static void show_tag(const git_tag *tag)
 		printf("\n%s\n", git_tag_message(tag));
 }
 
-enum {
+typedef enum {
 	SHOW_TYPE = 1,
 	SHOW_SIZE = 2,
 	SHOW_NONE = 3,
 	SHOW_PRETTY = 4
-};
+} catfile_mode;
 
 /* Forward declarations for option-parsing helper */
-struct opts {
+struct catfile_options {
 	const char *dir;
 	const char *rev;
-	int action;
+	catfile_mode action;
 	int verbose;
 };
-static void parse_opts(struct opts *o, int argc, char *argv[]);
+
+static void parse_opts(struct catfile_options *o, int argc, char *argv[]);
 
 
 /** Entry point for this command */
-int main(int argc, char *argv[])
+int lg2_cat_file(git_repository *repo, int argc, char *argv[])
 {
-	git_repository *repo;
-	struct opts o = { ".", NULL, 0, 0 };
+	struct catfile_options o = { ".", NULL, 0, 0 };
 	git_object *obj = NULL;
 	char oidstr[GIT_OID_HEXSZ + 1];
 
-	git_libgit2_init();
-
 	parse_opts(&o, argc, argv);
 
-	check_lg2(git_repository_open_ext(&repo, o.dir, 0, NULL),
-			"Could not open repository", NULL);
 	check_lg2(git_revparse_single(&obj, repo, o.rev),
 			"Could not resolve", o.rev);
 
@@ -168,16 +164,16 @@ int main(int argc, char *argv[])
 	case SHOW_PRETTY:
 
 		switch (git_object_type(obj)) {
-		case GIT_OBJ_BLOB:
+		case GIT_OBJECT_BLOB:
 			show_blob((const git_blob *)obj);
 			break;
-		case GIT_OBJ_COMMIT:
+		case GIT_OBJECT_COMMIT:
 			show_commit((const git_commit *)obj);
 			break;
-		case GIT_OBJ_TREE:
+		case GIT_OBJECT_TREE:
 			show_tree((const git_tree *)obj);
 			break;
-		case GIT_OBJ_TAG:
+		case GIT_OBJECT_TAG:
 			show_tag((const git_tag *)obj);
 			break;
 		default:
@@ -188,9 +184,6 @@ int main(int argc, char *argv[])
 	}
 
 	git_object_free(obj);
-	git_repository_free(repo);
-
-	git_libgit2_shutdown();
 
 	return 0;
 }
@@ -209,7 +202,7 @@ static void usage(const char *message, const char *arg)
 }
 
 /** Parse the command-line options taken from git */
-static void parse_opts(struct opts *o, int argc, char *argv[])
+static void parse_opts(struct catfile_options *o, int argc, char *argv[])
 {
 	struct args_info args = ARGS_INFO_INIT;
 

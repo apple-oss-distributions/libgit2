@@ -12,7 +12,7 @@
 #include "attrcache.h"
 #include "path.h"
 #include "config.h"
-#include "fnmatch.h"
+#include "wildmatch.h"
 
 #define GIT_IGNORE_INTERNAL		"[internal]exclude"
 
@@ -101,7 +101,7 @@ static int does_negate_pattern(git_attr_fnmatch *rule, git_attr_fnmatch *neg)
  */
 static int does_negate_rule(int *out, git_vector *rules, git_attr_fnmatch *match)
 {
-	int error = 0, fnflags;
+	int error = 0, wildmatch_flags, effective_flags;
 	size_t i;
 	git_attr_fnmatch *rule;
 	char *path;
@@ -109,9 +109,9 @@ static int does_negate_rule(int *out, git_vector *rules, git_attr_fnmatch *match
 
 	*out = 0;
 
-	fnflags = FNM_PATHNAME;
+	wildmatch_flags = WM_PATHNAME;
 	if (match->flags & GIT_ATTR_FNMATCH_ICASE)
-		fnflags |= FNM_IGNORECASE;
+		wildmatch_flags |= WM_CASEFOLD;
 
 	/* path of the file relative to the workdir, so we match the rules in subdirs */
 	if (match->containing_dir) {
@@ -133,32 +133,25 @@ static int does_negate_rule(int *out, git_vector *rules, git_attr_fnmatch *match
 				continue;
 		}
 
-		/*
-		 * When dealing with a directory, we add '/<star>' so
-		 * p_fnmatch() honours FNM_PATHNAME. Checking for LEADINGDIR
-		 * alone isn't enough as that's also set for nagations, so we
-		 * need to check that NEGATIVE is off.
-		 */
 		git_buf_clear(&buf);
-		if (rule->containing_dir) {
+		if (rule->containing_dir)
 			git_buf_puts(&buf, rule->containing_dir);
-		}
+		git_buf_puts(&buf, rule->pattern);
 
-		error = git_buf_puts(&buf, rule->pattern);
-
-		if ((rule->flags & (GIT_ATTR_FNMATCH_LEADINGDIR | GIT_ATTR_FNMATCH_NEGATIVE)) == GIT_ATTR_FNMATCH_LEADINGDIR)
-			error = git_buf_PUTS(&buf, "/*");
-
-		if (error < 0)
+		if (git_buf_oom(&buf))
 			goto out;
 
-		if ((error = p_fnmatch(git_buf_cstr(&buf), path, fnflags)) < 0) {
-			giterr_set(GITERR_INVALID, "error matching pattern");
-			goto out;
-		}
+		/*
+		 * if rule isn't for full path we match without PATHNAME flag
+		 * as lines like *.txt should match something like dir/test.txt
+		 * requiring * to also match /
+		 */
+		effective_flags = wildmatch_flags;
+		if (!(rule->flags & GIT_ATTR_FNMATCH_FULLPATH))
+			effective_flags &= ~WM_PATHNAME;
 
 		/* if we found a match, we want to keep this rule */
-		if (error != FNM_NOMATCH) {
+		if ((wildmatch(git_buf_cstr(&buf), path, effective_flags)) == WM_MATCH) {
 			*out = 1;
 			error = 0;
 			goto out;
@@ -169,20 +162,22 @@ static int does_negate_rule(int *out, git_vector *rules, git_attr_fnmatch *match
 
 out:
 	git__free(path);
-	git_buf_free(&buf);
+	git_buf_dispose(&buf);
 	return error;
 }
 
 static int parse_ignore_file(
-	git_repository *repo, git_attr_file *attrs, const char *data)
+	git_repository *repo, git_attr_file *attrs, const char *data, bool allow_macros)
 {
 	int error = 0;
 	int ignore_case = false;
 	const char *scan = data, *context = NULL;
 	git_attr_fnmatch *match = NULL;
 
-	if (git_repository__cvar(&ignore_case, repo, GIT_CVAR_IGNORECASE) < 0)
-		giterr_clear();
+	GIT_UNUSED(allow_macros);
+
+	if (git_repository__configmap_lookup(&ignore_case, repo, GIT_CONFIGMAP_IGNORECASE) < 0)
+		git_error_clear();
 
 	/* if subdir file path, convert context for file paths */
 	if (attrs->entry &&
@@ -191,7 +186,7 @@ static int parse_ignore_file(
 		context = attrs->entry->path;
 
 	if (git_mutex_lock(&attrs->lock) < 0) {
-		giterr_set(GITERR_OS, "failed to lock ignore file");
+		git_error_set(GIT_ERROR_OS, "failed to lock ignore file");
 		return -1;
 	}
 
@@ -203,7 +198,8 @@ static int parse_ignore_file(
 			break;
 		}
 
-		match->flags = GIT_ATTR_FNMATCH_ALLOWSPACE | GIT_ATTR_FNMATCH_ALLOWNEG;
+		match->flags =
+		    GIT_ATTR_FNMATCH_ALLOWSPACE | GIT_ATTR_FNMATCH_ALLOWNEG;
 
 		if (!(error = git_attr_fnmatch__parse(
 			match, &attrs->pool, context, &scan)))
@@ -251,12 +247,12 @@ static int push_ignore_file(
 	const char *base,
 	const char *filename)
 {
-	int error = 0;
+	git_attr_file_source source = { GIT_ATTR_FILE_SOURCE_FILE, base, filename };
 	git_attr_file *file = NULL;
+	int error = 0;
 
-	error = git_attr_cache__get(
-		&file, ignores->repo, NULL, GIT_ATTR_FILE__FROM_FILE,
-		base, filename, parse_ignore_file);
+	error = git_attr_cache__get(&file, ignores->repo, NULL, &source, parse_ignore_file, false);
+
 	if (error < 0)
 		return error;
 
@@ -277,17 +273,17 @@ static int push_one_ignore(void *payload, const char *path)
 
 static int get_internal_ignores(git_attr_file **out, git_repository *repo)
 {
+	git_attr_file_source source = { GIT_ATTR_FILE_SOURCE_MEMORY, NULL, GIT_IGNORE_INTERNAL };
 	int error;
 
 	if ((error = git_attr_cache__init(repo)) < 0)
 		return error;
 
-	error = git_attr_cache__get(
-		out, repo, NULL, GIT_ATTR_FILE__IN_MEMORY, NULL, GIT_IGNORE_INTERNAL, NULL);
+	error = git_attr_cache__get(out, repo, NULL, &source, NULL, false);
 
 	/* if internal rules list is empty, insert default rules */
 	if (!error && !(*out)->rules.length)
-		error = parse_ignore_file(repo, *out, GIT_IGNORE_DEFAULT_RULES);
+		error = parse_ignore_file(repo, *out, GIT_IGNORE_DEFAULT_RULES, false);
 
 	return error;
 }
@@ -301,14 +297,16 @@ int git_ignore__for_path(
 	const char *workdir = git_repository_workdir(repo);
 	git_buf infopath = GIT_BUF_INIT;
 
-	assert(repo && ignores && path);
+	GIT_ASSERT_ARG(repo);
+	GIT_ASSERT_ARG(ignores);
+	GIT_ASSERT_ARG(path);
 
 	memset(ignores, 0, sizeof(*ignores));
 	ignores->repo = repo;
 
 	/* Read the ignore_case flag */
-	if ((error = git_repository__cvar(
-			&ignores->ignore_case, repo, GIT_CVAR_IGNORECASE)) < 0)
+	if ((error = git_repository__configmap_lookup(
+			&ignores->ignore_case, repo, GIT_CONFIGMAP_IGNORECASE)) < 0)
 		goto cleanup;
 
 	if ((error = git_attr_cache__init(repo)) < 0)
@@ -321,12 +319,17 @@ int git_ignore__for_path(
 		if ((error = git_path_dirname_r(&local, path)) < 0 ||
 		    (error = git_path_resolve_relative(&local, 0)) < 0 ||
 		    (error = git_path_to_dir(&local)) < 0 ||
-		    (error = git_buf_joinpath(&ignores->dir, workdir, local.ptr)) < 0)
-		{;} /* Nothing, we just want to stop on the first error */
-		git_buf_free(&local);
+		    (error = git_buf_joinpath(&ignores->dir, workdir, local.ptr)) < 0 ||
+		    (error = git_path_validate_workdir_buf(repo, &ignores->dir)) < 0) {
+			/* Nothing, we just want to stop on the first error */
+		}
+
+		git_buf_dispose(&local);
 	} else {
-		error = git_buf_joinpath(&ignores->dir, path, "");
+		if (!(error = git_buf_joinpath(&ignores->dir, path, "")))
+		    error = git_path_validate_filesystem(ignores->dir.ptr, ignores->dir.size);
 	}
+
 	if (error < 0)
 		goto cleanup;
 
@@ -345,16 +348,13 @@ int git_ignore__for_path(
 			goto cleanup;
 	}
 
-	if ((error = git_repository_item_path(&infopath,
-			repo, GIT_REPOSITORY_ITEM_INFO)) < 0)
-		goto cleanup;
-
-	/* load .git/info/exclude */
-	error = push_ignore_file(
-		ignores, &ignores->ign_global,
-		infopath.ptr, GIT_IGNORE_FILE_INREPO);
-	if (error < 0)
-		goto cleanup;
+	/* load .git/info/exclude if possible */
+	if ((error = git_repository_item_path(&infopath, repo, GIT_REPOSITORY_ITEM_INFO)) < 0 ||
+		(error = push_ignore_file(ignores, &ignores->ign_global, infopath.ptr, GIT_IGNORE_FILE_INREPO)) < 0) {
+		if (error != GIT_ENOTFOUND)
+			goto cleanup;
+		error = 0;
+	}
 
 	/* load core.excludesfile */
 	if (git_repository_attr_cache(repo)->cfg_excl_file != NULL)
@@ -363,7 +363,7 @@ int git_ignore__for_path(
 			git_repository_attr_cache(repo)->cfg_excl_file);
 
 cleanup:
-	git_buf_free(&infopath);
+	git_buf_dispose(&infopath);
 	if (error < 0)
 		git_ignore__free(ignores);
 
@@ -435,7 +435,7 @@ void git_ignore__free(git_ignores *ignores)
 	}
 	git_vector_free(&ignores->ign_global);
 
-	git_buf_free(&ignores->dir);
+	git_buf_dispose(&ignores->dir);
 }
 
 static bool ignore_lookup_in_rules(
@@ -445,6 +445,9 @@ static bool ignore_lookup_in_rules(
 	git_attr_fnmatch *match;
 
 	git_vector_rforeach(&file->rules, j, match) {
+		if (match->flags & GIT_ATTR_FNMATCH_DIRECTORY &&
+		    path->is_dir == GIT_DIR_FLAG_FALSE)
+			continue;
 		if (git_attr_fnmatch__match(match, path)) {
 			*ignored = ((match->flags & GIT_ATTR_FNMATCH_NEGATIVE) == 0) ?
 				GIT_IGNORE_TRUE : GIT_IGNORE_FALSE;
@@ -458,7 +461,7 @@ static bool ignore_lookup_in_rules(
 int git_ignore__lookup(
 	int *out, git_ignores *ignores, const char *pathname, git_dir_flag dir_flag)
 {
-	unsigned int i;
+	size_t i;
 	git_attr_file *file;
 	git_attr_path path;
 
@@ -472,8 +475,11 @@ int git_ignore__lookup(
 	if (ignore_lookup_in_rules(out, ignores->ign_internal, &path))
 		goto cleanup;
 
-	/* next process files in the path */
-	git_vector_foreach(&ignores->ign_path, i, file) {
+	/* next process files in the path.
+	 * this process has to process ignores in reverse order
+	 * to ensure correct prioritization of rules
+	 */
+	git_vector_rforeach(&ignores->ign_path, i, file) {
 		if (ignore_lookup_in_rules(out, file, &path))
 			goto cleanup;
 	}
@@ -497,7 +503,7 @@ int git_ignore_add_rule(git_repository *repo, const char *rules)
 	if ((error = get_internal_ignores(&ign_internal, repo)) < 0)
 		return error;
 
-	error = parse_ignore_file(repo, ign_internal, rules);
+	error = parse_ignore_file(repo, ign_internal, rules, false);
 	git_attr_file__free(ign_internal);
 
 	return error;
@@ -513,7 +519,7 @@ int git_ignore_clear_internal_rules(git_repository *repo)
 
 	if (!(error = git_attr_file__clear_rules(ign_internal, true)))
 		error = parse_ignore_file(
-			repo, ign_internal, GIT_IGNORE_DEFAULT_RULES);
+				repo, ign_internal, GIT_IGNORE_DEFAULT_RULES, false);
 
 	git_attr_file__free(ign_internal);
 	return error;
@@ -532,14 +538,18 @@ int git_ignore_path_is_ignored(
 	git_attr_file *file;
 	git_dir_flag dir_flag = GIT_DIR_FLAG_UNKNOWN;
 
-	assert(repo && ignored && pathname);
+	GIT_ASSERT_ARG(repo);
+	GIT_ASSERT_ARG(ignored);
+	GIT_ASSERT_ARG(pathname);
 
 	workdir = git_repository_workdir(repo);
 
 	memset(&path, 0, sizeof(path));
 	memset(&ignores, 0, sizeof(ignores));
 
-	if (git_repository_is_bare(repo))
+	if (!git__suffixcmp(pathname, "/"))
+		dir_flag = GIT_DIR_FLAG_TRUE;
+	else if (git_repository_is_bare(repo))
 		dir_flag = GIT_DIR_FLAG_FALSE;
 
 	if ((error = git_attr_path__init(&path, pathname, workdir, dir_flag)) < 0 ||
@@ -595,15 +605,13 @@ int git_ignore__check_pathspec_for_exact_ignores(
 	git_attr_fnmatch *match;
 	int ignored;
 	git_buf path = GIT_BUF_INIT;
-	const char *wd, *filename;
+	const char *filename;
 	git_index *idx;
 
 	if ((error = git_repository__ensure_not_bare(
 			repo, "validate pathspec")) < 0 ||
 		(error = git_repository_index(&idx, repo)) < 0)
 		return error;
-
-	wd = git_repository_workdir(repo);
 
 	git_vector_foreach(vspec, i, match) {
 		/* skip wildcard matches (if they are being used) */
@@ -617,7 +625,7 @@ int git_ignore__check_pathspec_for_exact_ignores(
 		if (git_index_get_bypath(idx, filename, 0) != NULL)
 			continue;
 
-		if ((error = git_buf_joinpath(&path, wd, filename)) < 0)
+		if ((error = git_repository_workdir_path(&path, repo, filename)) < 0)
 			break;
 
 		/* is there a file on disk that matches this exactly? */
@@ -629,7 +637,7 @@ int git_ignore__check_pathspec_for_exact_ignores(
 			break;
 
 		if (ignored) {
-			giterr_set(GITERR_INVALID, "pathspec contains ignored file '%s'",
+			git_error_set(GIT_ERROR_INVALID, "pathspec contains ignored file '%s'",
 				filename);
 			error = GIT_EINVALIDSPEC;
 			break;
@@ -637,8 +645,7 @@ int git_ignore__check_pathspec_for_exact_ignores(
 	}
 
 	git_index_free(idx);
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 
 	return error;
 }
-

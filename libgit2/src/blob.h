@@ -12,15 +12,32 @@
 #include "git2/blob.h"
 #include "repository.h"
 #include "odb.h"
-#include "fileops.h"
+#include "futils.h"
 
 struct git_blob {
 	git_object object;
-	git_odb_object *odb_object;
+
+	union {
+		git_odb_object *odb;
+		struct {
+			const char *data;
+			git_object_size_t size;
+		} raw;
+	} data;
+	unsigned int raw:1;
 };
+
+#define GIT_ERROR_CHECK_BLOBSIZE(n) \
+	do { \
+		if (!git__is_sizet(n)) { \
+			git_error_set(GIT_ERROR_NOMEMORY, "blob contents too large to fit in memory"); \
+			return -1; \
+		} \
+	} while(0)
 
 void git_blob__free(void *blob);
 int git_blob__parse(void *blob, git_odb_object *obj);
+int git_blob__parse_raw(void *blob, const char *data, size_t size);
 int git_blob__getbuf(git_buf *buffer, git_blob *blob);
 
 extern int git_blob__create_from_paths(

@@ -1,6 +1,6 @@
 #include "clar_libgit2.h"
 
-#include "fileops.h"
+#include "futils.h"
 #include "git2/reflog.h"
 #include "git2/refdb.h"
 #include "reflog.h"
@@ -37,7 +37,7 @@ void test_refs_pack__empty(void)
 
 	cl_git_pass(git_buf_join_n(&temp_path, '/', 3, git_repository_path(g_repo), GIT_REFS_HEADS_DIR, "empty_dir"));
 	cl_git_pass(git_futils_mkdir_r(temp_path.ptr, GIT_REFS_DIR_MODE));
-	git_buf_free(&temp_path);
+	git_buf_dispose(&temp_path);
 
 	packall();
 }
@@ -75,7 +75,7 @@ void test_refs_pack__loose(void)
 	cl_assert(!git_path_exists(temp_path.ptr));
 
 	git_reference_free(reference);
-	git_buf_free(&temp_path);
+	git_buf_dispose(&temp_path);
 }
 
 void test_refs_pack__symbolic(void)

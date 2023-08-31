@@ -1,6 +1,6 @@
 #include "clar_libgit2.h"
 #include "buffer.h"
-#include "fileops.h"
+#include "futils.h"
 
 void test_config_global__initialize(void)
 {
@@ -21,25 +21,87 @@ void test_config_global__initialize(void)
 	cl_git_pass(git_libgit2_opts(
 		GIT_OPT_SET_SEARCH_PATH, GIT_CONFIG_LEVEL_SYSTEM, path.ptr));
 
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 }
 
 void test_config_global__cleanup(void)
 {
 	cl_sandbox_set_search_path_defaults();
+	cl_git_pass(git_futils_rmdir_r("home", NULL, GIT_RMDIR_REMOVE_FILES));
+	cl_git_pass(git_futils_rmdir_r("xdg", NULL, GIT_RMDIR_REMOVE_FILES));
+	cl_git_pass(git_futils_rmdir_r("etc", NULL, GIT_RMDIR_REMOVE_FILES));
 }
 
 void test_config_global__open_global(void)
 {
 	git_config *cfg, *global, *selected, *dummy;
+	int32_t value;
+
+	cl_git_mkfile("home/.gitconfig", "[global]\n  test = 4567\n");
 
 	cl_git_pass(git_config_open_default(&cfg));
+	cl_git_pass(git_config_get_int32(&value, cfg, "global.test"));
+	cl_assert_equal_i(4567, value);
+
 	cl_git_pass(git_config_open_level(&global, cfg, GIT_CONFIG_LEVEL_GLOBAL));
+	cl_git_pass(git_config_get_int32(&value, global, "global.test"));
+	cl_assert_equal_i(4567, value);
+
 	cl_git_fail(git_config_open_level(&dummy, cfg, GIT_CONFIG_LEVEL_XDG));
+
 	cl_git_pass(git_config_open_global(&selected, cfg));
+	cl_git_pass(git_config_get_int32(&value, selected, "global.test"));
+	cl_assert_equal_i(4567, value);
 
 	git_config_free(selected);
 	git_config_free(global);
+	git_config_free(cfg);
+}
+
+void test_config_global__open_symlinked_global(void)
+{
+#ifndef GIT_WIN32
+	git_config *cfg;
+	int32_t value;
+
+	cl_git_mkfile("home/.gitconfig.linked", "[global]\n  test = 4567\n");
+	cl_must_pass(symlink(".gitconfig.linked", "home/.gitconfig"));
+
+	cl_git_pass(git_config_open_default(&cfg));
+	cl_git_pass(git_config_get_int32(&value, cfg, "global.test"));
+	cl_assert_equal_i(4567, value);
+
+	git_config_free(cfg);
+#endif
+}
+
+void test_config_global__lock_missing_global_config(void)
+{
+	git_config *cfg;
+	git_config_entry *entry;
+	git_transaction *transaction;
+
+	(void)p_unlink("home/.gitconfig"); /* No global config */
+
+	cl_git_pass(git_config_open_default(&cfg));
+	cl_git_pass(git_config_lock(&transaction, cfg));
+	cl_git_pass(git_config_set_string(cfg, "assertion.fail", "boom"));
+	cl_git_pass(git_transaction_commit(transaction));
+	git_transaction_free(transaction);
+
+	/* cfg is updated */
+	cl_git_pass(git_config_get_entry(&entry, cfg, "assertion.fail"));
+	cl_assert_equal_s("boom", entry->value);
+
+	git_config_entry_free(entry);
+	git_config_free(cfg);
+
+	/* We can reread the new value from the global config */
+	cl_git_pass(git_config_open_default(&cfg));
+	cl_git_pass(git_config_get_entry(&entry, cfg, "assertion.fail"));
+	cl_assert_equal_s("boom", entry->value);
+
+	git_config_entry_free(entry);
 	git_config_free(cfg);
 }
 
@@ -60,7 +122,7 @@ void test_config_global__open_xdg(void)
 	cl_git_pass(git_config_get_string_buf(&buf, selected, key));
 	cl_assert_equal_s(str, buf.ptr);
 
-	git_buf_free(&buf);
+	git_buf_dispose(&buf);
 	git_config_free(selected);
 	git_config_free(xdg);
 	git_config_free(cfg);
@@ -87,7 +149,7 @@ void test_config_global__open_programdata(void)
 	cl_git_pass(git_config_open_ondisk(&cfg, config_path.ptr));
 	cl_git_pass(git_config_set_string(cfg, "programdata.var", "even higher level"));
 
-	git_buf_free(&config_path);
+	git_buf_dispose(&config_path);
 	git_config_free(cfg);
 
 	git_config_open_default(&cfg);
@@ -95,7 +157,7 @@ void test_config_global__open_programdata(void)
 	cl_assert_equal_s("even higher level", var_contents.ptr);
 
 	git_config_free(cfg);
-	git_buf_free(&var_contents);
+	git_buf_dispose(&var_contents);
 
 	cl_git_pass(git_repository_init(&repo, "./foo.git", true));
 	cl_git_pass(git_repository_config(&cfg, repo));
@@ -103,7 +165,7 @@ void test_config_global__open_programdata(void)
 	cl_assert_equal_s("even higher level", var_contents.ptr);
 
 	git_config_free(cfg);
-	git_buf_free(&var_contents);
+	git_buf_dispose(&var_contents);
 	git_repository_free(repo);
 	cl_fixture_cleanup("./foo.git");
 }

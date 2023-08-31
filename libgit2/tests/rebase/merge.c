@@ -19,7 +19,7 @@ static void set_core_autocrlf_to(git_repository *repo, bool value)
 	git_config_free(cfg);
 }
 
-// Fixture setup and teardown
+/* Fixture setup and teardown */
 void test_rebase_merge__initialize(void)
 {
 	repo = cl_git_sandbox_init("rebase");
@@ -44,6 +44,10 @@ void test_rebase_merge__next(void)
 	git_status_list *status_list;
 	const git_status_entry *status_entry;
 	git_oid pick_id, file1_id;
+	git_oid master_id, beef_id;
+
+	git_oid_fromstr(&master_id, "efad0b11c47cb2f0220cbd6f5b0f93bb99064b00");
+	git_oid_fromstr(&beef_id, "b146bd7608eac53d9bf9e1a6963543588b555c64");
 
 	cl_git_pass(git_reference_lookup(&branch_ref, repo, "refs/heads/beef"));
 	cl_git_pass(git_reference_lookup(&upstream_ref, repo, "refs/heads/master"));
@@ -52,6 +56,12 @@ void test_rebase_merge__next(void)
 	cl_git_pass(git_annotated_commit_from_ref(&upstream_head, repo, upstream_ref));
 
 	cl_git_pass(git_rebase_init(&rebase, repo, branch_head, upstream_head, NULL, NULL));
+
+	cl_assert_equal_s("refs/heads/beef", git_rebase_orig_head_name(rebase));
+	cl_assert_equal_oid(&beef_id, git_rebase_orig_head_id(rebase));
+
+	cl_assert_equal_s("master", git_rebase_onto_name(rebase));
+	cl_assert_equal_oid(&master_id, git_rebase_onto_id(rebase));
 
 	cl_git_pass(git_rebase_next(&rebase_operation, rebase));
 
@@ -450,7 +460,7 @@ void test_rebase_merge__finish(void)
 	cl_assert_equal_i(GIT_REPOSITORY_STATE_NONE, git_repository_state(repo));
 
 	cl_git_pass(git_reference_lookup(&head_ref, repo, "HEAD"));
-	cl_assert_equal_i(GIT_REF_SYMBOLIC, git_reference_type(head_ref));
+	cl_assert_equal_i(GIT_REFERENCE_SYMBOLIC, git_reference_type(head_ref));
 	cl_assert_equal_s("refs/heads/gravy", git_reference_symbolic_target(head_ref));
 
 	/* Make sure the reflogs are updated appropriately */
@@ -512,7 +522,7 @@ void test_rebase_merge__detached_finish(void)
 	cl_assert_equal_i(GIT_REPOSITORY_STATE_NONE, git_repository_state(repo));
 
 	cl_git_pass(git_reference_lookup(&head_ref, repo, "HEAD"));
-	cl_assert_equal_i(GIT_REF_OID, git_reference_type(head_ref));
+	cl_assert_equal_i(GIT_REFERENCE_DIRECT, git_reference_type(head_ref));
 
 	/* Make sure the reflogs are updated appropriately */
 	cl_git_pass(git_reflog_read(&reflog, repo, "HEAD"));
@@ -561,7 +571,7 @@ void test_rebase_merge__finish_with_ids(void)
 	cl_assert_equal_i(GIT_REPOSITORY_STATE_NONE, git_repository_state(repo));
 
 	cl_git_pass(git_reference_lookup(&head_ref, repo, "HEAD"));
-	cl_assert_equal_i(GIT_REF_OID, git_reference_type(head_ref));
+	cl_assert_equal_i(GIT_REFERENCE_DIRECT, git_reference_type(head_ref));
 	cl_assert_equal_oid(&commit_id, git_reference_target(head_ref));
 
 	/* reflogs are not updated as if we were operating on proper
@@ -647,7 +657,7 @@ static void test_copy_note(
 	cl_git_pass(git_annotated_commit_from_ref(&upstream_head, repo, upstream_ref));
 
 	cl_git_pass(git_reference_peel((git_object **)&branch_commit,
-		branch_ref, GIT_OBJ_COMMIT));
+		branch_ref, GIT_OBJECT_COMMIT));
 
 	/* Add a note to a commit */
 	cl_git_pass(git_note_create(&note_id, repo, "refs/notes/test",

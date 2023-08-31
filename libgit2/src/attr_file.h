@@ -14,7 +14,7 @@
 #include "vector.h"
 #include "pool.h"
 #include "buffer.h"
-#include "fileops.h"
+#include "futils.h"
 
 #define GIT_ATTR_FILE			".gitattributes"
 #define GIT_ATTR_FILE_INREPO	"attributes"
@@ -32,19 +32,36 @@
 #define GIT_ATTR_FNMATCH_MATCH_ALL	(1U << 8)
 #define GIT_ATTR_FNMATCH_ALLOWNEG   (1U << 9)
 #define GIT_ATTR_FNMATCH_ALLOWMACRO (1U << 10)
-#define GIT_ATTR_FNMATCH_LEADINGDIR (1U << 11)
-#define GIT_ATTR_FNMATCH_NOLEADINGDIR (1U << 12)
 
 #define GIT_ATTR_FNMATCH__INCOMING \
-	(GIT_ATTR_FNMATCH_ALLOWSPACE | GIT_ATTR_FNMATCH_ALLOWNEG | \
-	 GIT_ATTR_FNMATCH_ALLOWMACRO | GIT_ATTR_FNMATCH_NOLEADINGDIR)
+	(GIT_ATTR_FNMATCH_ALLOWSPACE | GIT_ATTR_FNMATCH_ALLOWNEG | GIT_ATTR_FNMATCH_ALLOWMACRO)
 
 typedef enum {
-	GIT_ATTR_FILE__IN_MEMORY   = 0,
-	GIT_ATTR_FILE__FROM_FILE   = 1,
-	GIT_ATTR_FILE__FROM_INDEX  = 2,
+	GIT_ATTR_FILE_SOURCE_MEMORY = 0,
+	GIT_ATTR_FILE_SOURCE_FILE   = 1,
+	GIT_ATTR_FILE_SOURCE_INDEX  = 2,
+	GIT_ATTR_FILE_SOURCE_HEAD   = 3,
+	GIT_ATTR_FILE_SOURCE_COMMIT = 4,
 
-	GIT_ATTR_FILE_NUM_SOURCES  = 3
+	GIT_ATTR_FILE_NUM_SOURCES   = 5
+} git_attr_file_source_t;
+
+typedef struct {
+	/* The source location for the attribute file. */
+	git_attr_file_source_t type;
+
+	/*
+	 * The filename of the attribute file to read (relative to the
+	 * given base path).
+	 */
+	const char *base;
+	const char *filename;
+
+	/*
+	 * The commit ID when the given source type is a commit (or NULL
+	 * for the repository's HEAD commit.)
+	 */
+	git_oid *commit_id;
 } git_attr_file_source;
 
 extern const char *git_attr__true;
@@ -126,7 +143,7 @@ extern int git_attr_get_many_with_session(
 	const char **values_out,
 	git_repository *repo,
 	git_attr_session *attr_session,
-	uint32_t flags,
+	git_attr_options *opts,
 	const char *path,
 	size_t num_attr,
 	const char **names);
@@ -134,7 +151,8 @@ extern int git_attr_get_many_with_session(
 typedef int (*git_attr_file_parser)(
 	git_repository *repo,
 	git_attr_file *file,
-	const char *data);
+	const char *data,
+	bool allow_macros);
 
 /*
  * git_attr_file API
@@ -143,7 +161,7 @@ typedef int (*git_attr_file_parser)(
 int git_attr_file__new(
 	git_attr_file **out,
 	git_attr_file_entry *entry,
-	git_attr_file_source source);
+	git_attr_file_source *source);
 
 void git_attr_file__free(git_attr_file *file);
 
@@ -152,17 +170,18 @@ int git_attr_file__load(
 	git_repository *repo,
 	git_attr_session *attr_session,
 	git_attr_file_entry *ce,
-	git_attr_file_source source,
-	git_attr_file_parser parser);
+	git_attr_file_source *source,
+	git_attr_file_parser parser,
+	bool allow_macros);
 
 int git_attr_file__load_standalone(
 	git_attr_file **out, const char *path);
 
 int git_attr_file__out_of_date(
-	git_repository *repo, git_attr_session *session, git_attr_file *file);
+	git_repository *repo, git_attr_session *session, git_attr_file *file, git_attr_file_source *source);
 
 int git_attr_file__parse_buffer(
-	git_repository *repo, git_attr_file *attrs, const char *data);
+	git_repository *repo, git_attr_file *attrs, const char *data, bool allow_macros);
 
 int git_attr_file__clear_rules(
 	git_attr_file *file, bool need_lock);
@@ -207,8 +226,10 @@ extern git_attr_assignment *git_attr_rule__lookup_assignment(
 typedef enum { GIT_DIR_FLAG_TRUE = 1, GIT_DIR_FLAG_FALSE = 0, GIT_DIR_FLAG_UNKNOWN = -1 } git_dir_flag;
 
 extern int git_attr_path__init(
-	git_attr_path *info, const char *path, const char *base, git_dir_flag is_dir);
-
+	git_attr_path *out,
+	const char *path,
+	const char *base,
+	git_dir_flag is_dir);
 extern void git_attr_path__free(git_attr_path *info);
 
 extern int git_attr_assignment__parse(

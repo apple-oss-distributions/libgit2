@@ -28,28 +28,192 @@ void test_network_remote_remotes__cleanup(void)
 
 void test_network_remote_remotes__parsing(void)
 {
+	git_buf url = GIT_BUF_INIT;
 	git_remote *_remote2 = NULL;
 
 	cl_assert_equal_s(git_remote_name(_remote), "test");
 	cl_assert_equal_s(git_remote_url(_remote), "git://github.com/libgit2/libgit2");
 	cl_assert(git_remote_pushurl(_remote) == NULL);
 
-	cl_assert_equal_s(git_remote__urlfordirection(_remote, GIT_DIRECTION_FETCH),
-					  "git://github.com/libgit2/libgit2");
-	cl_assert_equal_s(git_remote__urlfordirection(_remote, GIT_DIRECTION_PUSH),
-					  "git://github.com/libgit2/libgit2");
+	cl_git_pass(git_remote__urlfordirection(&url, _remote, GIT_DIRECTION_FETCH, NULL));
+	cl_assert_equal_s(url.ptr, "git://github.com/libgit2/libgit2");
+
+	cl_git_pass(git_remote__urlfordirection(&url, _remote, GIT_DIRECTION_PUSH, NULL));
+	cl_assert_equal_s(url.ptr, "git://github.com/libgit2/libgit2");
 
 	cl_git_pass(git_remote_lookup(&_remote2, _repo, "test_with_pushurl"));
 	cl_assert_equal_s(git_remote_name(_remote2), "test_with_pushurl");
 	cl_assert_equal_s(git_remote_url(_remote2), "git://github.com/libgit2/fetchlibgit2");
 	cl_assert_equal_s(git_remote_pushurl(_remote2), "git://github.com/libgit2/pushlibgit2");
 
-	cl_assert_equal_s(git_remote__urlfordirection(_remote2, GIT_DIRECTION_FETCH),
-					  "git://github.com/libgit2/fetchlibgit2");
-	cl_assert_equal_s(git_remote__urlfordirection(_remote2, GIT_DIRECTION_PUSH),
-					  "git://github.com/libgit2/pushlibgit2");
+	cl_git_pass(git_remote__urlfordirection(&url, _remote2, GIT_DIRECTION_FETCH, NULL));
+	cl_assert_equal_s(url.ptr, "git://github.com/libgit2/fetchlibgit2");
+
+	cl_git_pass(git_remote__urlfordirection(&url, _remote2, GIT_DIRECTION_PUSH, NULL));
+	cl_assert_equal_s(url.ptr, "git://github.com/libgit2/pushlibgit2");
 
 	git_remote_free(_remote2);
+	git_buf_dispose(&url);
+}
+
+static int remote_ready_callback(git_remote *remote, int direction, void *payload)
+{
+	if (direction == GIT_DIRECTION_PUSH) {
+		const char *url = git_remote_pushurl(remote);
+
+		cl_assert_equal_p(url, NULL);;
+		cl_assert_equal_s(payload, "payload");
+		return git_remote_set_instance_pushurl(remote, "push_url");
+	}
+
+	if (direction == GIT_DIRECTION_FETCH) {
+		const char *url = git_remote_url(remote);
+
+		cl_assert_equal_s(url, "git://github.com/libgit2/libgit2");
+		cl_assert_equal_s(payload, "payload");
+		return git_remote_set_instance_url(remote, "fetch_url");
+	}
+
+	return -1;
+}
+
+void test_network_remote_remotes__remote_ready(void)
+{
+	git_buf url = GIT_BUF_INIT;
+
+	git_remote_callbacks callbacks = GIT_REMOTE_CALLBACKS_INIT;
+	callbacks.remote_ready = remote_ready_callback;
+	callbacks.payload = "payload";
+
+	cl_assert_equal_s(git_remote_name(_remote), "test");
+	cl_assert_equal_s(git_remote_url(_remote), "git://github.com/libgit2/libgit2");
+	cl_assert(git_remote_pushurl(_remote) == NULL);
+
+	cl_git_pass(git_remote__urlfordirection(&url, _remote, GIT_DIRECTION_FETCH, &callbacks));
+	cl_assert_equal_s(url.ptr, "fetch_url");
+
+	cl_git_pass(git_remote__urlfordirection(&url, _remote, GIT_DIRECTION_PUSH, &callbacks));
+	cl_assert_equal_s(url.ptr, "push_url");
+
+	git_buf_dispose(&url);
+}
+
+#ifndef GIT_DEPRECATE_HARD
+static int urlresolve_callback(git_buf *url_resolved, const char *url, int direction, void *payload)
+{
+	cl_assert(strcmp(url, "git://github.com/libgit2/libgit2") == 0);
+	cl_assert(strcmp(payload, "payload") == 0);
+	cl_assert(url_resolved->size == 0);
+
+	if (direction == GIT_DIRECTION_PUSH)
+		git_buf_sets(url_resolved, "pushresolve");
+	if (direction == GIT_DIRECTION_FETCH)
+		git_buf_sets(url_resolved, "fetchresolve");
+
+	return GIT_OK;
+}
+#endif
+
+void test_network_remote_remotes__urlresolve(void)
+{
+#ifndef GIT_DEPRECATE_HARD
+	git_buf url = GIT_BUF_INIT;
+
+	git_remote_callbacks callbacks = GIT_REMOTE_CALLBACKS_INIT;
+	callbacks.resolve_url = urlresolve_callback;
+	callbacks.payload = "payload";
+
+	cl_assert_equal_s(git_remote_name(_remote), "test");
+	cl_assert_equal_s(git_remote_url(_remote), "git://github.com/libgit2/libgit2");
+	cl_assert(git_remote_pushurl(_remote) == NULL);
+
+	cl_git_pass(git_remote__urlfordirection(&url, _remote, GIT_DIRECTION_FETCH, &callbacks));
+	cl_assert_equal_s(url.ptr, "fetchresolve");
+
+	cl_git_pass(git_remote__urlfordirection(&url, _remote, GIT_DIRECTION_PUSH, &callbacks));
+	cl_assert_equal_s(url.ptr, "pushresolve");
+
+	git_buf_dispose(&url);
+#endif
+}
+
+#ifndef GIT_DEPRECATE_HARD
+static int urlresolve_passthrough_callback(git_buf *url_resolved, const char *url, int direction, void *payload)
+{
+	GIT_UNUSED(url_resolved);
+	GIT_UNUSED(url);
+	GIT_UNUSED(direction);
+	GIT_UNUSED(payload);
+	return GIT_PASSTHROUGH;
+}
+#endif
+
+void test_network_remote_remotes__urlresolve_passthrough(void)
+{
+#ifndef GIT_DEPRECATE_HARD
+	git_buf url = GIT_BUF_INIT;
+	const char *orig_url = "git://github.com/libgit2/libgit2";
+
+	git_remote_callbacks callbacks = GIT_REMOTE_CALLBACKS_INIT;
+	callbacks.resolve_url = urlresolve_passthrough_callback;
+
+	cl_assert_equal_s(git_remote_name(_remote), "test");
+	cl_assert_equal_s(git_remote_url(_remote), orig_url);
+	cl_assert(git_remote_pushurl(_remote) == NULL);
+
+	cl_git_pass(git_remote__urlfordirection(&url, _remote, GIT_DIRECTION_FETCH, &callbacks));
+	cl_assert_equal_s(url.ptr, orig_url);
+
+	cl_git_pass(git_remote__urlfordirection(&url, _remote, GIT_DIRECTION_PUSH, &callbacks));
+	cl_assert_equal_s(url.ptr, orig_url);
+
+	git_buf_dispose(&url);
+#endif
+}
+
+void test_network_remote_remotes__instance_url(void)
+{
+	git_buf url = GIT_BUF_INIT;
+	const char *orig_url = "git://github.com/libgit2/libgit2";
+
+	cl_assert_equal_s(git_remote_name(_remote), "test");
+	cl_assert_equal_s(git_remote_url(_remote), orig_url);
+
+	cl_git_pass(git_remote__urlfordirection(&url, _remote, GIT_DIRECTION_FETCH, NULL));
+	cl_assert_equal_s(url.ptr, orig_url);
+	git_buf_clear(&url);
+
+	cl_git_pass(git_remote__urlfordirection(&url, _remote, GIT_DIRECTION_PUSH, NULL));
+	cl_assert_equal_s(url.ptr, orig_url);
+	git_buf_clear(&url);
+
+	/* Setting the instance url updates the fetch and push URLs */
+	git_remote_set_instance_url(_remote, "https://github.com/new/remote/url");
+	cl_assert_equal_s(git_remote_url(_remote), "https://github.com/new/remote/url");
+	cl_assert_equal_p(git_remote_pushurl(_remote), NULL);
+
+	cl_git_pass(git_remote__urlfordirection(&url, _remote, GIT_DIRECTION_FETCH, NULL));
+	cl_assert_equal_s(url.ptr, "https://github.com/new/remote/url");
+	git_buf_clear(&url);
+
+	cl_git_pass(git_remote__urlfordirection(&url, _remote, GIT_DIRECTION_PUSH, NULL));
+	cl_assert_equal_s(url.ptr, "https://github.com/new/remote/url");
+	git_buf_clear(&url);
+
+	/* Setting the instance push url updates only the push URL */
+	git_remote_set_instance_pushurl(_remote, "https://github.com/new/push/url");
+	cl_assert_equal_s(git_remote_url(_remote), "https://github.com/new/remote/url");
+	cl_assert_equal_s(git_remote_pushurl(_remote), "https://github.com/new/push/url");
+
+	cl_git_pass(git_remote__urlfordirection(&url, _remote, GIT_DIRECTION_FETCH, NULL));
+	cl_assert_equal_s(url.ptr, "https://github.com/new/remote/url");
+	git_buf_clear(&url);
+
+	cl_git_pass(git_remote__urlfordirection(&url, _remote, GIT_DIRECTION_PUSH, NULL));
+	cl_assert_equal_s(url.ptr, "https://github.com/new/push/url");
+	git_buf_clear(&url);
+
+	git_buf_dispose(&url);
 }
 
 void test_network_remote_remotes__pushurl(void)
@@ -73,8 +237,8 @@ void test_network_remote_remotes__error_when_not_found(void)
 	git_remote *r;
 	cl_git_fail_with(git_remote_lookup(&r, _repo, "does-not-exist"), GIT_ENOTFOUND);
 
-	cl_assert(giterr_last() != NULL);
-	cl_assert(giterr_last()->klass == GITERR_CONFIG);
+	cl_assert(git_error_last() != NULL);
+	cl_assert(git_error_last()->klass == GIT_ERROR_CONFIG);
 }
 
 void test_network_remote_remotes__error_when_no_push_available(void)
@@ -146,11 +310,11 @@ void test_network_remote_remotes__dup(void)
 	cl_git_pass(git_remote_get_fetch_refspecs(&array, _remote));
 	cl_assert_equal_i(1, (int)array.count);
 	cl_assert_equal_s("+refs/heads/*:refs/remotes/test/*", array.strings[0]);
-	git_strarray_free(&array);
+	git_strarray_dispose(&array);
 
 	cl_git_pass(git_remote_get_push_refspecs(&array, _remote));
 	cl_assert_equal_i(0, (int)array.count);
-	git_strarray_free(&array);
+	git_strarray_dispose(&array);
 
 	git_remote_free(dup);
 }
@@ -189,7 +353,7 @@ void test_network_remote_remotes__transform(void)
 
 	cl_git_pass(git_refspec_transform(&ref, _refspec, "refs/heads/master"));
 	cl_assert_equal_s(ref.ptr, "refs/remotes/test/master");
-	git_buf_free(&ref);
+	git_buf_dispose(&ref);
 }
 
 void test_network_remote_remotes__transform_destination_to_source(void)
@@ -198,7 +362,7 @@ void test_network_remote_remotes__transform_destination_to_source(void)
 
 	cl_git_pass(git_refspec_rtransform(&ref, _refspec, "refs/remotes/test/master"));
 	cl_assert_equal_s(ref.ptr, "refs/heads/master");
-	git_buf_free(&ref);
+	git_buf_dispose(&ref);
 }
 
 void test_network_remote_remotes__missing_refspecs(void)
@@ -249,7 +413,7 @@ void test_network_remote_remotes__list(void)
 
 	cl_git_pass(git_remote_list(&list, _repo));
 	cl_assert(list.count == 5);
-	git_strarray_free(&list);
+	git_strarray_dispose(&list);
 
 	cl_git_pass(git_repository_config(&cfg, _repo));
 
@@ -261,7 +425,7 @@ void test_network_remote_remotes__list(void)
 
 	cl_git_pass(git_remote_list(&list, _repo));
 	cl_assert(list.count == 7);
-	git_strarray_free(&list);
+	git_strarray_dispose(&list);
 
 	git_config_free(cfg);
 }
@@ -312,30 +476,6 @@ void test_network_remote_remotes__add(void)
 	cl_assert_equal_s(git_remote_url(_remote), "http://github.com/libgit2/libgit2");
 }
 
-void test_network_remote_remotes__cannot_add_a_nameless_remote(void)
-{
-	git_remote *remote;
-
-	cl_assert_equal_i(
-		GIT_EINVALIDSPEC,
-		git_remote_create(&remote, _repo, NULL, "git://github.com/libgit2/libgit2"));
-}
-
-void test_network_remote_remotes__cannot_add_a_remote_with_an_invalid_name(void)
-{
-	git_remote *remote = NULL;
-
-	cl_assert_equal_i(
-		GIT_EINVALIDSPEC,
-		git_remote_create(&remote, _repo, "Inv@{id", "git://github.com/libgit2/libgit2"));
-	cl_assert_equal_p(remote, NULL);
-
-	cl_assert_equal_i(
-		GIT_EINVALIDSPEC,
-		git_remote_create(&remote, _repo, "", "git://github.com/libgit2/libgit2"));
-	cl_assert_equal_p(remote, NULL);
-}
-
 void test_network_remote_remotes__tagopt(void)
 {
 	const char *name = git_remote_name(_remote);
@@ -361,8 +501,8 @@ void test_network_remote_remotes__can_load_with_an_empty_url(void)
 
 	cl_git_fail(git_remote_connect(remote, GIT_DIRECTION_FETCH, NULL, NULL, NULL));
 
-	cl_assert(giterr_last() != NULL);
-	cl_assert(giterr_last()->klass == GITERR_INVALID);
+	cl_assert(git_error_last() != NULL);
+	cl_assert(git_error_last()->klass == GIT_ERROR_INVALID);
 
 	git_remote_free(remote);
 }
@@ -387,41 +527,6 @@ void test_network_remote_remotes__returns_ENOTFOUND_when_neither_url_nor_pushurl
 
 	cl_git_fail_with(
 		git_remote_lookup(&remote, _repo, "no-remote-url"), GIT_ENOTFOUND);
-}
-
-void assert_cannot_create_remote(const char *name, int expected_error)
-{
-	git_remote *remote = NULL;
-
-	cl_git_fail_with(
-		git_remote_create(&remote, _repo, name, "git://github.com/libgit2/libgit2"),
-		expected_error);
-
-	cl_assert_equal_p(remote, NULL);
-}
-
-void test_network_remote_remotes__cannot_create_a_remote_which_name_conflicts_with_an_existing_remote(void)
-{
-	assert_cannot_create_remote("test", GIT_EEXISTS);
-}
-
-void test_network_remote_remotes__cannot_create_a_remote_which_name_is_invalid(void)
-{
-	assert_cannot_create_remote("/", GIT_EINVALIDSPEC);
-	assert_cannot_create_remote("//", GIT_EINVALIDSPEC);
-	assert_cannot_create_remote(".lock", GIT_EINVALIDSPEC);
-	assert_cannot_create_remote("a.lock", GIT_EINVALIDSPEC);
-}
-
-void test_network_remote_remote__git_remote_create_with_fetchspec(void)
-{
-	git_remote *remote;
-	git_strarray array;
-
-	cl_git_pass(git_remote_create_with_fetchspec(&remote, _repo, "test-new", "git://github.com/libgit2/libgit2", "+refs/*:refs/*"));
-	git_remote_get_fetch_refspecs(&array, remote);
-	cl_assert_equal_s("+refs/*:refs/*", array.strings[0]);
-	git_remote_free(remote);
 }
 
 static const char *fetch_refspecs[] = {
@@ -456,13 +561,13 @@ void test_network_remote_remotes__query_refspecs(void)
 	for (i = 0; i < 3; i++) {
 		cl_assert_equal_s(fetch_refspecs[i], array.strings[i]);
 	}
-	git_strarray_free(&array);
+	git_strarray_dispose(&array);
 
 	cl_git_pass(git_remote_get_push_refspecs(&array, remote));
 	for (i = 0; i < 3; i++) {
 		cl_assert_equal_s(push_refspecs[i], array.strings[i]);
 	}
-	git_strarray_free(&array);
+	git_strarray_dispose(&array);
 
 	git_remote_free(remote);
 	git_remote_delete(_repo, "test");

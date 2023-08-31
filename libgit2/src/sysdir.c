@@ -7,7 +7,7 @@
 
 #include "sysdir.h"
 
-#include "global.h"
+#include "runtime.h"
 #include "buffer.h"
 #include "path.h"
 #include <ctype.h>
@@ -45,7 +45,7 @@ static int get_passwd_home(git_buf *out, uid_t uid)
 	long buflen;
 	int error;
 
-	assert(out);
+	GIT_ASSERT_ARG(out);
 
 	if ((buflen = sysconf(_SC_GETPW_R_SIZE_MAX)) == -1)
 		buflen = 1024;
@@ -57,12 +57,12 @@ static int get_passwd_home(git_buf *out, uid_t uid)
 	} while (error == ERANGE && buflen <= 8192);
 
 	if (error) {
-		giterr_set(GITERR_OS, "failed to get passwd entry");
+		git_error_set(GIT_ERROR_OS, "failed to get passwd entry");
 		goto out;
 	}
 
 	if (!pwdptr) {
-		giterr_set(GITERR_OS, "no passwd entry found for user");
+		git_error_set(GIT_ERROR_OS, "no passwd entry found for user");
 		goto out;
 	}
 
@@ -82,21 +82,31 @@ static int git_sysdir_guess_global_dirs(git_buf *out)
 #else
 	int error;
 	uid_t uid, euid;
+	const char *sandbox_id;
 
 	uid = getuid();
 	euid = geteuid();
 
+	/**
+	 * If APP_SANDBOX_CONTAINER_ID is set, we are running in a
+	 * sandboxed environment on macOS.
+	 */
+	sandbox_id = getenv("APP_SANDBOX_CONTAINER_ID");
+
 	/*
 	 * In case we are running setuid, use the configuration
 	 * of the effective user.
+	 *
+	 * If we are running in a sandboxed environment on macOS,
+	 * we have to get the HOME dir from the password entry file.
 	 */
-	if (uid == euid)
+	if (!sandbox_id && uid == euid)
 	    error = git__getenv(out, "HOME");
 	else
 	    error = get_passwd_home(out, euid);
 
 	if (error == GIT_ENOTFOUND) {
-		giterr_clear();
+		git_error_clear();
 		error = 0;
 	}
 
@@ -132,11 +142,11 @@ static int git_sysdir_guess_xdg_dirs(git_buf *out)
 	}
 
 	if (error == GIT_ENOTFOUND) {
-		giterr_clear();
+		git_error_clear();
 		error = 0;
 	}
 
-	git_buf_free(&env);
+	git_buf_dispose(&env);
 	return error;
 #endif
 }
@@ -168,7 +178,7 @@ static void git_sysdir_global_shutdown(void)
 	size_t i;
 
 	for (i = 0; i < ARRAY_SIZE(git_sysdir__dirs); ++i)
-		git_buf_free(&git_sysdir__dirs[i].buf);
+		git_buf_dispose(&git_sysdir__dirs[i].buf);
 }
 
 int git_sysdir_global_init(void)
@@ -179,9 +189,7 @@ int git_sysdir_global_init(void)
 	for (i = 0; !error && i < ARRAY_SIZE(git_sysdir__dirs); i++)
 		error = git_sysdir__dirs[i].guess(&git_sysdir__dirs[i].buf);
 
-	git__on_shutdown(git_sysdir_global_shutdown);
-
-	return error;
+	return git_runtime_shutdown_register(git_sysdir_global_shutdown);
 }
 
 static int git_sysdir_check_selector(git_sysdir_t which)
@@ -189,39 +197,20 @@ static int git_sysdir_check_selector(git_sysdir_t which)
 	if (which < ARRAY_SIZE(git_sysdir__dirs))
 		return 0;
 
-	giterr_set(GITERR_INVALID, "config directory selector out of range");
+	git_error_set(GIT_ERROR_INVALID, "config directory selector out of range");
 	return -1;
 }
 
 
 int git_sysdir_get(const git_buf **out, git_sysdir_t which)
 {
-	assert(out);
+	GIT_ASSERT_ARG(out);
 
 	*out = NULL;
 
-	GITERR_CHECK_ERROR(git_sysdir_check_selector(which));
+	GIT_ERROR_CHECK_ERROR(git_sysdir_check_selector(which));
 
 	*out = &git_sysdir__dirs[which].buf;
-	return 0;
-}
-
-int git_sysdir_get_str(
-	char *out,
-	size_t outlen,
-	git_sysdir_t which)
-{
-	const git_buf *path = NULL;
-
-	GITERR_CHECK_ERROR(git_sysdir_check_selector(which));
-	GITERR_CHECK_ERROR(git_sysdir_get(&path, which));
-
-	if (!out || path->size >= outlen) {
-		giterr_set(GITERR_NOMEMORY, "buffer is too short for the path");
-		return GIT_EBUFS;
-	}
-
-	git_buf_copy_cstr(out, outlen, path);
 	return 0;
 }
 
@@ -232,7 +221,7 @@ int git_sysdir_set(git_sysdir_t which, const char *search_path)
 	const char *expand_path = NULL;
 	git_buf merge = GIT_BUF_INIT;
 
-	GITERR_CHECK_ERROR(git_sysdir_check_selector(which));
+	GIT_ERROR_CHECK_ERROR(git_sysdir_check_selector(which));
 
 	if (search_path != NULL)
 		expand_path = strstr(search_path, PATH_MAGIC);
@@ -262,7 +251,7 @@ int git_sysdir_set(git_sysdir_t which, const char *search_path)
 		git_buf_join(&merge, GIT_PATH_LIST_SEPARATOR, merge.ptr, expand_path);
 
 	git_buf_swap(&git_sysdir__dirs[which].buf, &merge);
-	git_buf_free(&merge);
+	git_buf_dispose(&merge);
 
 done:
 	if (git_buf_oom(&git_sysdir__dirs[which].buf))
@@ -281,7 +270,7 @@ static int git_sysdir_find_in_dirlist(
 	const char *scan, *next = NULL;
 	const git_buf *syspath;
 
-	GITERR_CHECK_ERROR(git_sysdir_get(&syspath, which));
+	GIT_ERROR_CHECK_ERROR(git_sysdir_get(&syspath, which));
 	if (!syspath || !git_buf_len(syspath))
 		goto done;
 
@@ -298,17 +287,20 @@ static int git_sysdir_find_in_dirlist(
 		if (!len)
 			continue;
 
-		GITERR_CHECK_ERROR(git_buf_set(path, scan, len));
+		GIT_ERROR_CHECK_ERROR(git_buf_set(path, scan, len));
 		if (name)
-			GITERR_CHECK_ERROR(git_buf_joinpath(path, path->ptr, name));
+			GIT_ERROR_CHECK_ERROR(git_buf_joinpath(path, path->ptr, name));
 
 		if (git_path_exists(path->ptr))
 			return 0;
 	}
 
 done:
-	git_buf_free(path);
-	giterr_set(GITERR_OS, "the %s file '%s' doesn't exist", label, name);
+	if (name)
+		git_error_set(GIT_ERROR_OS, "the %s file '%s' doesn't exist", label, name);
+	else
+		git_error_set(GIT_ERROR_OS, "the %s directory doesn't exist", label);
+	git_buf_dispose(path);
 	return GIT_ENOTFOUND;
 }
 

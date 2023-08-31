@@ -8,7 +8,7 @@
 #include "merge_driver.h"
 
 #include "vector.h"
-#include "global.h"
+#include "runtime.h"
 #include "merge.h"
 #include "git2/merge.h"
 #include "git2/sys/merge.h"
@@ -32,33 +32,38 @@ static struct merge_driver_registry merge_driver_registry;
 
 static void git_merge_driver_global_shutdown(void);
 
-const git_repository* git_merge_driver_source_repo(const git_merge_driver_source *src)
+git_repository *git_merge_driver_source_repo(
+	const git_merge_driver_source *src)
 {
-	assert(src);
+	GIT_ASSERT_ARG_WITH_RETVAL(src, NULL);
 	return src->repo;
 }
 
-const git_index_entry* git_merge_driver_source_ancestor(const git_merge_driver_source *src)
+const git_index_entry *git_merge_driver_source_ancestor(
+	const git_merge_driver_source *src)
 {
-	assert(src);
+	GIT_ASSERT_ARG_WITH_RETVAL(src, NULL);
 	return src->ancestor;
 }
 
-const git_index_entry* git_merge_driver_source_ours(const git_merge_driver_source *src)
+const git_index_entry *git_merge_driver_source_ours(
+	const git_merge_driver_source *src)
 {
-	assert(src);
+	GIT_ASSERT_ARG_WITH_RETVAL(src, NULL);
 	return src->ours;
 }
 
-const git_index_entry* git_merge_driver_source_theirs(const git_merge_driver_source *src)
+const git_index_entry *git_merge_driver_source_theirs(
+	const git_merge_driver_source *src)
 {
-	assert(src);
+	GIT_ASSERT_ARG_WITH_RETVAL(src, NULL);
 	return src->theirs;
 }
 
-const git_merge_file_options* git_merge_driver_source_file_options(const git_merge_driver_source *src)
+const git_merge_file_options *git_merge_driver_source_file_options(
+	const git_merge_driver_source *src)
 {
-	assert(src);
+	GIT_ASSERT_ARG_WITH_RETVAL(src, NULL);
 	return src->file_opts;
 }
 
@@ -181,7 +186,7 @@ static int merge_driver_registry_insert(
 	git_merge_driver_entry *entry;
 
 	entry = git__calloc(1, sizeof(git_merge_driver_entry) + strlen(name) + 1);
-	GITERR_CHECK_ALLOC(entry);
+	GIT_ERROR_CHECK_ALLOC(entry);
 
 	strcpy(entry->name, name);
 	entry->driver = driver;
@@ -209,7 +214,7 @@ int git_merge_driver_global_init(void)
 			merge_driver_name__binary, &git_merge_driver__binary)) < 0)
 		goto done;
 
-	git__on_shutdown(git_merge_driver_global_shutdown);
+	error = git_runtime_shutdown_register(git_merge_driver_global_shutdown);
 
 done:
 	if (error < 0)
@@ -262,15 +267,16 @@ int git_merge_driver_register(const char *name, git_merge_driver *driver)
 {
 	int error;
 
-	assert(name && driver);
+	GIT_ASSERT_ARG(name);
+	GIT_ASSERT_ARG(driver);
 
 	if (git_rwlock_wrlock(&merge_driver_registry.lock) < 0) {
-		giterr_set(GITERR_OS, "failed to lock merge driver registry");
+		git_error_set(GIT_ERROR_OS, "failed to lock merge driver registry");
 		return -1;
 	}
 
 	if (!merge_driver_registry_find(NULL, name)) {
-		giterr_set(GITERR_MERGE, "attempt to reregister existing driver '%s'",
+		git_error_set(GIT_ERROR_MERGE, "attempt to reregister existing driver '%s'",
 			name);
 		error = GIT_EEXISTS;
 		goto done;
@@ -290,12 +296,12 @@ int git_merge_driver_unregister(const char *name)
 	int error = 0;
 
 	if (git_rwlock_wrlock(&merge_driver_registry.lock) < 0) {
-		giterr_set(GITERR_OS, "failed to lock merge driver registry");
+		git_error_set(GIT_ERROR_OS, "failed to lock merge driver registry");
 		return -1;
 	}
 
 	if ((entry = merge_driver_registry_lookup(&pos, name)) == NULL) {
-		giterr_set(GITERR_MERGE, "cannot find merge driver '%s' to unregister",
+		git_error_set(GIT_ERROR_MERGE, "cannot find merge driver '%s' to unregister",
 			name);
 		error = GIT_ENOTFOUND;
 		goto done;
@@ -332,7 +338,7 @@ git_merge_driver *git_merge_driver_lookup(const char *name)
 		return &git_merge_driver__binary;
 
 	if (git_rwlock_rdlock(&merge_driver_registry.lock) < 0) {
-		giterr_set(GITERR_OS, "failed to lock merge driver registry");
+		git_error_set(GIT_ERROR_OS, "failed to lock merge driver registry");
 		return NULL;
 	}
 
@@ -341,7 +347,7 @@ git_merge_driver *git_merge_driver_lookup(const char *name)
 	git_rwlock_rdunlock(&merge_driver_registry.lock);
 
 	if (entry == NULL) {
-		giterr_set(GITERR_MERGE, "cannot use an unregistered filter");
+		git_error_set(GIT_ERROR_MERGE, "cannot use an unregistered filter");
 		return NULL;
 	}
 
@@ -371,17 +377,17 @@ static int merge_driver_name_for_path(
 		return error;
 
 	/* set: use the built-in 3-way merge driver ("text") */
-	if (GIT_ATTR_TRUE(value))
+	if (GIT_ATTR_IS_TRUE(value))
 		*out = merge_driver_name__text;
 
 	/* unset: do not merge ("binary") */
-	else if (GIT_ATTR_FALSE(value))
+	else if (GIT_ATTR_IS_FALSE(value))
 		*out = merge_driver_name__binary;
 
-	else if (GIT_ATTR_UNSPECIFIED(value) && default_driver)
+	else if (GIT_ATTR_IS_UNSPECIFIED(value) && default_driver)
 		*out = default_driver;
 
-	else if (GIT_ATTR_UNSPECIFIED(value))
+	else if (GIT_ATTR_IS_UNSPECIFIED(value))
 		*out = merge_driver_name__text;
 
 	else

@@ -68,7 +68,7 @@ int git_win32__set_hidden(const char *path, bool hidden)
 		newattrs = attrs & ~FILE_ATTRIBUTE_HIDDEN;
 
 	if (attrs != newattrs && !SetFileAttributesW(buf, newattrs)) {
-		giterr_set(GITERR_OS, "failed to %s hidden bit for '%s'",
+		git_error_set(GIT_ERROR_OS, "failed to %s hidden bit for '%s'",
 			hidden ? "set" : "unset", path);
 		return -1;
 	}
@@ -94,70 +94,33 @@ int git_win32__hidden(bool *out, const char *path)
 	return 0;
 }
 
-/**
- * Removes any trailing backslashes from a path, except in the case of a drive
- * letter path (C:\, D:\, etc.). This function cannot fail.
- *
- * @param path The path which should be trimmed.
- * @return The length of the modified string (<= the input length)
- */
-size_t git_win32__path_trim_end(wchar_t *str, size_t len)
+int git_win32__file_attribute_to_stat(
+	struct stat *st,
+	const WIN32_FILE_ATTRIBUTE_DATA *attrdata,
+	const wchar_t *path)
 {
-	while (1) {
-		if (!len || str[len - 1] != L'\\')
-			break;
+	git_win32__stat_init(st,
+		attrdata->dwFileAttributes,
+		attrdata->nFileSizeHigh,
+		attrdata->nFileSizeLow,
+		attrdata->ftCreationTime,
+		attrdata->ftLastAccessTime,
+		attrdata->ftLastWriteTime);
 
-		/* Don't trim backslashes from drive letter paths, which
-		 * are 3 characters long and of the form C:\, D:\, etc. */
-		if (len == 3 && git_win32__isalpha(str[0]) && str[1] == ':')
-			break;
+	if (attrdata->dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT && path) {
+		git_win32_path target;
 
-		len--;
+		if (git_win32_path_readlink_w(target, path) >= 0) {
+			st->st_mode = (st->st_mode & ~S_IFMT) | S_IFLNK;
+
+			/* st_size gets the UTF-8 length of the target name, in bytes,
+			 * not counting the NULL terminator */
+			if ((st->st_size = git__utf16_to_8(NULL, 0, target)) < 0) {
+				git_error_set(GIT_ERROR_OS, "could not convert reparse point name for '%ls'", path);
+				return -1;
+			}
+		}
 	}
 
-	str[len] = L'\0';
-
-	return len;
-}
-
-/**
- * Removes any of the following namespace prefixes from a path,
- * if found: "\??\", "\\?\", "\\?\UNC\". This function cannot fail.
- *
- * @param path The path which should be converted.
- * @return The length of the modified string (<= the input length)
- */
-size_t git_win32__canonicalize_path(wchar_t *str, size_t len)
-{
-	static const wchar_t dosdevices_prefix[] = L"\\\?\?\\";
-	static const wchar_t nt_prefix[] = L"\\\\?\\";
-	static const wchar_t unc_prefix[] = L"UNC\\";
-	size_t to_advance = 0;
-
-	/* "\??\" -- DOS Devices prefix */
-	if (len >= CONST_STRLEN(dosdevices_prefix) &&
-		!wcsncmp(str, dosdevices_prefix, CONST_STRLEN(dosdevices_prefix))) {
-		to_advance += CONST_STRLEN(dosdevices_prefix);
-		len -= CONST_STRLEN(dosdevices_prefix);
-	}
-	/* "\\?\" -- NT namespace prefix */
-	else if (len >= CONST_STRLEN(nt_prefix) &&
-		!wcsncmp(str, nt_prefix, CONST_STRLEN(nt_prefix))) {
-		to_advance += CONST_STRLEN(nt_prefix);
-		len -= CONST_STRLEN(nt_prefix);
-	}
-
-	/* "\??\UNC\", "\\?\UNC\" -- UNC prefix */
-	if (to_advance && len >= CONST_STRLEN(unc_prefix) &&
-		!wcsncmp(str + to_advance, unc_prefix, CONST_STRLEN(unc_prefix))) {
-		to_advance += CONST_STRLEN(unc_prefix);
-		len -= CONST_STRLEN(unc_prefix);
-	}
-
-	if (to_advance) {
-		memmove(str, str + to_advance, len * sizeof(wchar_t));
-		str[len] = L'\0';
-	}
-
-	return git_win32__path_trim_end(str, len);
+	return 0;
 }

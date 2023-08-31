@@ -12,11 +12,25 @@
 typedef unsigned short mode_t;
 typedef SSIZE_T ssize_t;
 
+#ifdef _WIN64
+# define SSIZE_MAX _I64_MAX
+#else
+# define SSIZE_MAX LONG_MAX
+#endif
+
 #define strcasecmp(s1, s2) _stricmp(s1, s2)
 #define strncasecmp(s1, s2, c) _strnicmp(s1, s2, c)
 
 #endif
 
-#define GIT_STDLIB_CALL __cdecl
+/*
+ * Offer GIT_LIBGIT2_CALL for our calling conventions (__cdecl, always).
+ * This is useful for providing callbacks to userspace code.
+ *
+ * Offer GIT_SYSTEM_CALL for the system calling conventions (__stdcall on
+ * Win32).  Useful for providing callbacks to system libraries.
+ */
+#define GIT_LIBGIT2_CALL __cdecl
+#define GIT_SYSTEM_CALL NTAPI
 
 #endif

@@ -50,7 +50,7 @@ int git__mmap_alignment(size_t *page_size)
 	return 0;
 }
 
-int p_mmap(git_map *out, size_t len, int prot, int flags, int fd, git_off_t offset)
+int p_mmap(git_map *out, size_t len, int prot, int flags, int fd, off64_t offset)
 {
 	HANDLE fh = (HANDLE)_get_osfhandle(fd);
 	DWORD alignment = get_allocation_granularity();
@@ -58,8 +58,8 @@ int p_mmap(git_map *out, size_t len, int prot, int flags, int fd, git_off_t offs
 	DWORD view_prot = 0;
 	DWORD off_low = 0;
 	DWORD off_hi = 0;
-	git_off_t page_start;
-	git_off_t page_offset;
+	off64_t page_start;
+	off64_t page_offset;
 
 	GIT_MMAP_VALIDATE(out, len, prot, flags);
 
@@ -69,7 +69,7 @@ int p_mmap(git_map *out, size_t len, int prot, int flags, int fd, git_off_t offs
 
 	if (fh == INVALID_HANDLE_VALUE) {
 		errno = EBADF;
-		giterr_set(GITERR_OS, "failed to mmap. Invalid handle value");
+		git_error_set(GIT_ERROR_OS, "failed to mmap. Invalid handle value");
 		return -1;
 	}
 
@@ -88,24 +88,22 @@ int p_mmap(git_map *out, size_t len, int prot, int flags, int fd, git_off_t offs
 
 	if (page_offset != 0) { /* offset must be multiple of the allocation granularity */
 		errno = EINVAL;
-		giterr_set(GITERR_OS, "failed to mmap. Offset must be multiple of allocation granularity");
+		git_error_set(GIT_ERROR_OS, "failed to mmap. Offset must be multiple of allocation granularity");
 		return -1;
 	}
 
 	out->fmh = CreateFileMapping(fh, NULL, fmap_prot, 0, 0, NULL);
 	if (!out->fmh || out->fmh == INVALID_HANDLE_VALUE) {
-		giterr_set(GITERR_OS, "failed to mmap. Invalid handle value");
+		git_error_set(GIT_ERROR_OS, "failed to mmap. Invalid handle value");
 		out->fmh = NULL;
 		return -1;
 	}
-
-	assert(sizeof(git_off_t) == 8);
 
 	off_low = (DWORD)(page_start);
 	off_hi = (DWORD)(page_start >> 32);
 	out->data = MapViewOfFile(out->fmh, view_prot, off_hi, off_low, len);
 	if (!out->data) {
-		giterr_set(GITERR_OS, "failed to mmap. No data written");
+		git_error_set(GIT_ERROR_OS, "failed to mmap. No data written");
 		CloseHandle(out->fmh);
 		out->fmh = NULL;
 		return -1;
@@ -119,11 +117,11 @@ int p_munmap(git_map *map)
 {
 	int error = 0;
 
-	assert(map != NULL);
+	GIT_ASSERT_ARG(map);
 
 	if (map->data) {
 		if (!UnmapViewOfFile(map->data)) {
-			giterr_set(GITERR_OS, "failed to munmap. Could not unmap view of file");
+			git_error_set(GIT_ERROR_OS, "failed to munmap. Could not unmap view of file");
 			error = -1;
 		}
 		map->data = NULL;
@@ -131,7 +129,7 @@ int p_munmap(git_map *map)
 
 	if (map->fmh) {
 		if (!CloseHandle(map->fmh)) {
-			giterr_set(GITERR_OS, "failed to munmap. Could not close handle");
+			git_error_set(GIT_ERROR_OS, "failed to munmap. Could not close handle");
 			error = -1;
 		}
 		map->fmh = NULL;

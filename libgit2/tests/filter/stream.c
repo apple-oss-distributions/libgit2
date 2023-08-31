@@ -2,7 +2,6 @@
 #include "posix.h"
 #include "blob.h"
 #include "filter.h"
-#include "buf_text.h"
 #include "git2/sys/filter.h"
 #include "git2/sys/repository.h"
 
@@ -157,7 +156,7 @@ static void writefile(const char *filename, size_t numchunks)
 	}
 	p_close(fd);
 
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 }
 
 static void test_stream(size_t numchunks)

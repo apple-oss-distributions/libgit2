@@ -1,6 +1,6 @@
 #include "clar_libgit2.h"
 
-#include "fileops.h"
+#include "futils.h"
 #include "git2/reflog.h"
 #include "reflog.h"
 
@@ -11,7 +11,7 @@ static const char *current_master_tip = "a65fedf39aefe402d3bb6e24df4d4f5fe454775
 static git_repository *g_repo;
 
 
-// helpers
+/* helpers */
 static void assert_signature(const git_signature *expected, const git_signature *actual)
 {
 	cl_assert(actual);
@@ -22,15 +22,15 @@ static void assert_signature(const git_signature *expected, const git_signature 
 }
 
 
-// Fixture setup and teardown
+/* Fixture setup and teardown */
 void test_refs_reflog_reflog__initialize(void)
 {
-   g_repo = cl_git_sandbox_init("testrepo.git");
+	g_repo = cl_git_sandbox_init("testrepo.git");
 }
 
 void test_refs_reflog_reflog__cleanup(void)
 {
-   cl_git_sandbox_cleanup();
+	cl_git_sandbox_cleanup();
 }
 
 static void assert_appends(const git_signature *committer, const git_oid *oid)
@@ -87,15 +87,13 @@ void test_refs_reflog_reflog__append_then_read(void)
 	cl_git_pass(git_signature_now(&committer, "foo", "foo@bar"));
 
 	cl_git_pass(git_reflog_read(&reflog, g_repo, new_ref));
-
-	cl_git_fail(git_reflog_append(reflog, &oid, committer, "no inner\nnewline"));
 	cl_git_pass(git_reflog_append(reflog, &oid, committer, NULL));
 	cl_git_pass(git_reflog_append(reflog, &oid, committer, commit_msg "\n"));
 	cl_git_pass(git_reflog_write(reflog));
-	git_reflog_free(reflog);
 
 	assert_appends(committer, &oid);
 
+	git_reflog_free(reflog);
 	git_signature_free(committer);
 }
 
@@ -120,8 +118,8 @@ void test_refs_reflog_reflog__renaming_the_reference_moves_the_reflog(void)
 	cl_assert_equal_i(true, git_path_isfile(git_buf_cstr(&moved_log_path)));
 
 	git_reference_free(new_master);
-	git_buf_free(&moved_log_path);
-	git_buf_free(&master_log_path);
+	git_buf_dispose(&moved_log_path);
+	git_buf_dispose(&master_log_path);
 }
 
 void test_refs_reflog_reflog__deleting_the_reference_deletes_the_reflog(void)
@@ -139,7 +137,7 @@ void test_refs_reflog_reflog__deleting_the_reference_deletes_the_reflog(void)
 	git_reference_free(master);
 
 	cl_assert_equal_i(false, git_path_isfile(git_buf_cstr(&master_log_path)));
-	git_buf_free(&master_log_path);
+	git_buf_dispose(&master_log_path);
 }
 
 void test_refs_reflog_reflog__removes_empty_reflog_dir(void)
@@ -165,7 +163,7 @@ void test_refs_reflog_reflog__removes_empty_reflog_dir(void)
 	cl_git_pass(git_reference_create(&ref, g_repo, "refs/heads/new-dir", &id, 0, NULL));
 	git_reference_free(ref);
 
-	git_buf_free(&log_path);
+	git_buf_dispose(&log_path);
 }
 
 void test_refs_reflog_reflog__fails_gracefully_on_nonempty_reflog_dir(void)
@@ -192,7 +190,7 @@ void test_refs_reflog_reflog__fails_gracefully_on_nonempty_reflog_dir(void)
 	cl_git_fail_with(GIT_EDIRECTORY, git_reference_create(&ref, g_repo, "refs/heads/new-dir", &id, 0, NULL));
 	git_reference_free(ref);
 
-	git_buf_free(&log_path);
+	git_buf_dispose(&log_path);
 }
 
 static void assert_has_reflog(bool expected_result, const char *name)
@@ -221,50 +219,50 @@ void test_refs_reflog_reflog__reading_the_reflog_from_a_reference_with_no_log_re
 	cl_assert_equal_i(0, (int)git_reflog_entrycount(reflog));
 
 	git_reflog_free(reflog);
-	git_buf_free(&subtrees_log_path);
+	git_buf_dispose(&subtrees_log_path);
 }
 
-void test_refs_reflog_reflog__reading_a_reflog_with_invalid_format_returns_error(void)
+void test_refs_reflog_reflog__reading_a_reflog_with_invalid_format_succeeds(void)
 {
 	git_reflog *reflog;
-	const git_error *error;
 	const char *refname = "refs/heads/newline";
 	const char *refmessage =
 		"Reflog*message with a newline and enough content after it to pass the GIT_REFLOG_SIZE_MIN check inside reflog_parse.";
+	const git_reflog_entry *entry;
 	git_reference *ref;
 	git_oid id;
 	git_buf logpath = GIT_BUF_INIT, logcontents = GIT_BUF_INIT;
 	char *star;
 
-	git_oid_fromstr(&id, current_master_tip);
-
-	/* create a new branch */
+	/* Create a new branch. */
+	cl_git_pass(git_oid_fromstr(&id, current_master_tip));
 	cl_git_pass(git_reference_create(&ref, g_repo, refname, &id, 1, refmessage));
 
-	/* corrupt the branch reflog by introducing a newline inside the reflog message (we replace '*' with '\n') */
-	git_buf_join_n(&logpath, '/', 3, git_repository_path(g_repo), GIT_REFLOG_DIR, refname);
+	/*
+	 * Corrupt the branch reflog by introducing a newline inside the reflog message.
+	 * We do this by replacing '*' with '\n'
+	 */
+	cl_git_pass(git_buf_join_n(&logpath, '/', 3, git_repository_path(g_repo), GIT_REFLOG_DIR, refname));
 	cl_git_pass(git_futils_readbuffer(&logcontents, git_buf_cstr(&logpath)));
 	cl_assert((star = strchr(git_buf_cstr(&logcontents), '*')) != NULL);
 	*star = '\n';
 	cl_git_rewritefile(git_buf_cstr(&logpath), git_buf_cstr(&logcontents));
 
-	/* confirm that the file was rewritten successfully and now contains a '\n' in the expected location */
+	/*
+	 * Confirm that the file was rewritten successfully
+	 * and now contains a '\n' in the expected location
+	 */
 	cl_git_pass(git_futils_readbuffer(&logcontents, git_buf_cstr(&logpath)));
 	cl_assert(strstr(git_buf_cstr(&logcontents), "Reflog\nmessage") != NULL);
 
-	/* clear the error state so we can capture the error generated by git_reflog_read */
-	giterr_clear();
-
-	cl_git_fail(git_reflog_read(&reflog, g_repo, refname));
-
-	error = giterr_last();
-
-	cl_assert(error != NULL);
-	cl_assert_equal_s("unable to parse OID - contains invalid characters", error->message);
+	cl_git_pass(git_reflog_read(&reflog, g_repo, refname));
+	cl_assert(entry = git_reflog_entry_byindex(reflog, 0));
+	cl_assert_equal_s(git_reflog_entry_message(entry), "Reflog");
 
 	git_reference_free(ref);
-	git_buf_free(&logpath);
-	git_buf_free(&logcontents);
+	git_reflog_free(reflog);
+	git_buf_dispose(&logpath);
+	git_buf_dispose(&logcontents);
 }
 
 void test_refs_reflog_reflog__cannot_write_a_moved_reflog(void)
@@ -285,8 +283,8 @@ void test_refs_reflog_reflog__cannot_write_a_moved_reflog(void)
 
 	git_reflog_free(reflog);
 	git_reference_free(new_master);
-	git_buf_free(&moved_log_path);
-	git_buf_free(&master_log_path);
+	git_buf_dispose(&moved_log_path);
+	git_buf_dispose(&master_log_path);
 }
 
 void test_refs_reflog_reflog__renaming_with_an_invalid_name_returns_EINVALIDSPEC(void)
@@ -420,6 +418,28 @@ void test_refs_reflog_reflog__logallrefupdates_bare_set_false(void)
 	git_config_free(config);
 
 	assert_no_reflog_update();
+}
+
+void test_refs_reflog_reflog__logallrefupdates_bare_set_always(void)
+{
+	git_config *config;
+	git_reference *ref;
+	git_reflog *log;
+	git_oid id;
+
+	cl_git_pass(git_repository_config(&config, g_repo));
+	cl_git_pass(git_config_set_string(config, "core.logallrefupdates", "always"));
+	git_config_free(config);
+
+	git_oid_fromstr(&id, "be3563ae3f795b2b4353bcce3a527ad0a4f7f644");
+	cl_git_pass(git_reference_create(&ref, g_repo, "refs/bork", &id, 1, "message"));
+
+	cl_git_pass(git_reflog_read(&log, g_repo, "refs/bork"));
+	cl_assert_equal_i(1, git_reflog_entrycount(log));
+	cl_assert_equal_s("message", git_reflog_entry_byindex(log, 0)->msg);
+
+	git_reflog_free(log);
+	git_reference_free(ref);
 }
 
 void test_refs_reflog_reflog__logallrefupdates_bare_unset(void)

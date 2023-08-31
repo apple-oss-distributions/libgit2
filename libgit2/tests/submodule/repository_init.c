@@ -3,7 +3,7 @@
 #include "path.h"
 #include "submodule_helpers.h"
 #include "config/config_helpers.h"
-#include "fileops.h"
+#include "futils.h"
 
 static git_repository *g_repo = NULL;
 
@@ -34,5 +34,5 @@ void test_submodule_repository_init__basic(void)
 
 	git_submodule_free(sm);
 	git_repository_free(repo);
-	git_buf_free(&dot_git_content);
+	git_buf_dispose(&dot_git_content);
 }

@@ -30,7 +30,7 @@ enum subcmd {
 	subcmd_show,
 };
 
-struct opts {
+struct remote_opts {
 	enum subcmd cmd;
 
 	/* for command-specific args */
@@ -38,33 +38,22 @@ struct opts {
 	char **argv;
 };
 
-static int cmd_add(git_repository *repo, struct opts *o);
-static int cmd_remove(git_repository *repo, struct opts *o);
-static int cmd_rename(git_repository *repo, struct opts *o);
-static int cmd_seturl(git_repository *repo, struct opts *o);
-static int cmd_show(git_repository *repo, struct opts *o);
+static int cmd_add(git_repository *repo, struct remote_opts *o);
+static int cmd_remove(git_repository *repo, struct remote_opts *o);
+static int cmd_rename(git_repository *repo, struct remote_opts *o);
+static int cmd_seturl(git_repository *repo, struct remote_opts *o);
+static int cmd_show(git_repository *repo, struct remote_opts *o);
 
 static void parse_subcmd(
-	struct opts *opt, int argc, char **argv);
+	struct remote_opts *opt, int argc, char **argv);
 static void usage(const char *msg, const char *arg);
 
-int main(int argc, char *argv[])
+int lg2_remote(git_repository *repo, int argc, char *argv[])
 {
 	int retval = 0;
-	struct opts opt = {0};
-	git_buf buf = GIT_BUF_INIT_CONST(NULL, 0);
-	git_repository *repo = NULL;
+	struct remote_opts opt = {0};
 
 	parse_subcmd(&opt, argc, argv);
-
-	git_libgit2_init();
-
-	check_lg2(git_repository_discover(&buf, ".", 0, NULL),
-		"Could not find repository", NULL);
-
-	check_lg2(git_repository_open(&repo, buf.ptr),
-		"Could not open repository", NULL);
-	git_buf_free(&buf);
 
 	switch (opt.cmd)
 	{
@@ -85,12 +74,10 @@ int main(int argc, char *argv[])
 		break;
 	}
 
-	git_libgit2_shutdown();
-
 	return retval;
 }
 
-static int cmd_add(git_repository *repo, struct opts *o)
+static int cmd_add(git_repository *repo, struct remote_opts *o)
 {
 	char *name, *url;
 	git_remote *remote = {0};
@@ -107,7 +94,7 @@ static int cmd_add(git_repository *repo, struct opts *o)
 	return 0;
 }
 
-static int cmd_remove(git_repository *repo, struct opts *o)
+static int cmd_remove(git_repository *repo, struct remote_opts *o)
 {
 	char *name;
 
@@ -122,7 +109,7 @@ static int cmd_remove(git_repository *repo, struct opts *o)
 	return 0;
 }
 
-static int cmd_rename(git_repository *repo, struct opts *o)
+static int cmd_rename(git_repository *repo, struct remote_opts *o)
 {
 	int i, retval;
 	char *old, *new;
@@ -142,12 +129,12 @@ static int cmd_rename(git_repository *repo, struct opts *o)
 		puts(problems.strings[0]);
 	}
 
-	git_strarray_free(&problems);
+	git_strarray_dispose(&problems);
 
 	return retval;
 }
 
-static int cmd_seturl(git_repository *repo, struct opts *o)
+static int cmd_seturl(git_repository *repo, struct remote_opts *o)
 {
 	int i, retval, push = 0;
 	char *name = NULL, *url = NULL;
@@ -179,7 +166,7 @@ static int cmd_seturl(git_repository *repo, struct opts *o)
 	return 0;
 }
 
-static int cmd_show(git_repository *repo, struct opts *o)
+static int cmd_show(git_repository *repo, struct remote_opts *o)
 {
 	int i;
 	const char *arg, *name, *fetch, *push;
@@ -220,13 +207,13 @@ static int cmd_show(git_repository *repo, struct opts *o)
 		git_remote_free(remote);
 	}
 
-	git_strarray_free(&remotes);
+	git_strarray_dispose(&remotes);
 
 	return 0;
 }
 
 static void parse_subcmd(
-	struct opts *opt, int argc, char **argv)
+	struct remote_opts *opt, int argc, char **argv)
 {
 	char *arg = argv[1];
 	enum subcmd cmd = 0;

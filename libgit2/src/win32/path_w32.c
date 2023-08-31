@@ -25,6 +25,9 @@
 #define path__is_unc(p) \
 	(((p)[0] == '\\' && (p)[1] == '\\') || ((p)[0] == '/' && (p)[1] == '/'))
 
+#define path__startswith_slash(p) \
+	((p)[0] == '\\' || (p)[0] == '/')
+
 GIT_INLINE(int) path__cwd(wchar_t *path, int size)
 {
 	int len;
@@ -140,14 +143,24 @@ int git_win32_path_canonicalize(git_win32_path path)
 
 	*to = L'\0';
 
-	return (to - path);
+	if ((to - path) > INT_MAX) {
+		SetLastError(ERROR_FILENAME_EXCED_RANGE);
+		return -1;
+	}
+
+	return (int)(to - path);
 }
 
-int git_win32_path__cwd(wchar_t *out, size_t len)
+static int win32_path_cwd(wchar_t *out, size_t len)
 {
 	int cwd_len;
 
-	if ((cwd_len = path__cwd(out, len)) < 0)
+	if (len > INT_MAX) {
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+
+	if ((cwd_len = path__cwd(out, (int)len)) < 0)
 		return -1;
 
 	/* UNC paths */
@@ -157,7 +170,7 @@ int git_win32_path__cwd(wchar_t *out, size_t len)
 		 * '\'s, but we we add a 'UNC' specifier to the path, plus
 		 * a trailing directory separator, plus a NUL.
 		 */
-		if (cwd_len > MAX_PATH - 4) {
+		if (cwd_len > GIT_WIN_PATH_MAX - 4) {
 			errno = ENAMETOOLONG;
 			return -1;
 		}
@@ -174,7 +187,7 @@ int git_win32_path__cwd(wchar_t *out, size_t len)
 	 * working directory.  (One character for the directory separator,
 	 * one for the null.
 	 */
-	else if (cwd_len > MAX_PATH - 2) {
+	else if (cwd_len > GIT_WIN_PATH_MAX - 2) {
 		errno = ENAMETOOLONG;
 		return -1;
 	}
@@ -192,13 +205,13 @@ int git_win32_path_from_utf8(git_win32_path out, const char *src)
 
 	/* See if this is an absolute path (beginning with a drive letter) */
 	if (git_path_is_absolute(src)) {
-		if (git__utf8_to_16(dest, MAX_PATH, src) < 0)
+		if (git__utf8_to_16(dest, GIT_WIN_PATH_MAX, src) < 0)
 			goto on_error;
 	}
 	/* File-prefixed NT-style paths beginning with \\?\ */
 	else if (path__is_nt_namespace(src)) {
 		/* Skip the NT prefix, the destination already contains it */
-		if (git__utf8_to_16(dest, MAX_PATH, src + PATH__NT_NAMESPACE_LEN) < 0)
+		if (git__utf8_to_16(dest, GIT_WIN_PATH_MAX, src + PATH__NT_NAMESPACE_LEN) < 0)
 			goto on_error;
 	}
 	/* UNC paths */
@@ -207,12 +220,12 @@ int git_win32_path_from_utf8(git_win32_path out, const char *src)
 		dest += 4;
 
 		/* Skip the leading "\\" */
-		if (git__utf8_to_16(dest, MAX_PATH - 2, src + 2) < 0)
+		if (git__utf8_to_16(dest, GIT_WIN_PATH_MAX - 2, src + 2) < 0)
 			goto on_error;
 	}
 	/* Absolute paths omitting the drive letter */
-	else if (src[0] == '\\' || src[0] == '/') {
-		if (path__cwd(dest, MAX_PATH) < 0)
+	else if (path__startswith_slash(src)) {
+		if (path__cwd(dest, GIT_WIN_PATH_MAX) < 0)
 			goto on_error;
 
 		if (!git_path_is_absolute(dest)) {
@@ -220,20 +233,20 @@ int git_win32_path_from_utf8(git_win32_path out, const char *src)
 			goto on_error;
 		}
 
-		/* Skip the drive letter specification ("C:") */	
-		if (git__utf8_to_16(dest + 2, MAX_PATH - 2, src) < 0)
+		/* Skip the drive letter specification ("C:") */
+		if (git__utf8_to_16(dest + 2, GIT_WIN_PATH_MAX - 2, src) < 0)
 			goto on_error;
 	}
 	/* Relative paths */
 	else {
 		int cwd_len;
 
-		if ((cwd_len = git_win32_path__cwd(dest, MAX_PATH)) < 0)
+		if ((cwd_len = win32_path_cwd(dest, GIT_WIN_PATH_MAX)) < 0)
 			goto on_error;
 
 		dest[cwd_len++] = L'\\';
 
-		if (git__utf8_to_16(dest + cwd_len, MAX_PATH - cwd_len, src) < 0)
+		if (git__utf8_to_16(dest + cwd_len, GIT_WIN_PATH_MAX - cwd_len, src) < 0)
 			goto on_error;
 	}
 
@@ -245,6 +258,30 @@ on_error:
 		SetLastError(ERROR_FILENAME_EXCED_RANGE);
 
 	return -1;
+}
+
+int git_win32_path_relative_from_utf8(git_win32_path out, const char *src)
+{
+	wchar_t *dest = out, *p;
+	int len;
+
+	/* Handle absolute paths */
+	if (git_path_is_absolute(src) ||
+	    path__is_nt_namespace(src) ||
+	    path__is_unc(src) ||
+	    path__startswith_slash(src)) {
+		return git_win32_path_from_utf8(out, src);
+	}
+
+	if ((len = git__utf8_to_16(dest, GIT_WIN_PATH_MAX, src)) < 0)
+		return -1;
+
+	for (p = dest; p < (dest + len); p++) {
+		if (*p == L'/')
+			*p = L'\\';
+	}
+
+	return len;
 }
 
 int git_win32_path_to_utf8(git_win32_utf8_path dest, const wchar_t *src)
@@ -315,7 +352,7 @@ static bool path_is_volume(wchar_t *target, size_t target_len)
 }
 
 /* On success, returns the length, in characters, of the path stored in dest.
-* On failure, returns a negative value. */
+ * On failure, returns a negative value. */
 int git_win32_path_readlink_w(git_win32_path dest, const git_win32_path path)
 {
 	BYTE buf[MAXIMUM_REPARSE_DATA_BUFFER_SIZE];
@@ -344,14 +381,14 @@ int git_win32_path_readlink_w(git_win32_path dest, const git_win32_path path)
 
 	switch (reparse_buf->ReparseTag) {
 	case IO_REPARSE_TAG_SYMLINK:
-		target = reparse_buf->SymbolicLinkReparseBuffer.PathBuffer +
-			(reparse_buf->SymbolicLinkReparseBuffer.SubstituteNameOffset / sizeof(WCHAR));
-		target_len = reparse_buf->SymbolicLinkReparseBuffer.SubstituteNameLength / sizeof(WCHAR);
+		target = reparse_buf->ReparseBuffer.SymbolicLink.PathBuffer +
+			(reparse_buf->ReparseBuffer.SymbolicLink.SubstituteNameOffset / sizeof(WCHAR));
+		target_len = reparse_buf->ReparseBuffer.SymbolicLink.SubstituteNameLength / sizeof(WCHAR);
 	break;
 	case IO_REPARSE_TAG_MOUNT_POINT:
-		target = reparse_buf->MountPointReparseBuffer.PathBuffer +
-			(reparse_buf->MountPointReparseBuffer.SubstituteNameOffset / sizeof(WCHAR));
-		target_len = reparse_buf->MountPointReparseBuffer.SubstituteNameLength / sizeof(WCHAR);
+		target = reparse_buf->ReparseBuffer.MountPoint.PathBuffer +
+			(reparse_buf->ReparseBuffer.MountPoint.SubstituteNameOffset / sizeof(WCHAR));
+		target_len = reparse_buf->ReparseBuffer.MountPoint.SubstituteNameLength / sizeof(WCHAR);
 	break;
 	default:
 		errno = EINVAL;
@@ -360,16 +397,16 @@ int git_win32_path_readlink_w(git_win32_path dest, const git_win32_path path)
 
 	if (path_is_volume(target, target_len)) {
 		/* This path is a reparse point that represents another volume mounted
-		* at this location, it is not a symbolic link our input was canonical.
-		*/
+		 * at this location, it is not a symbolic link our input was canonical.
+		 */
 		errno = EINVAL;
 		error = -1;
 	} else if (target_len) {
-		/* The path may need to have a prefix removed. */
-		target_len = git_win32__canonicalize_path(target, target_len);
+		/* The path may need to have a namespace prefix removed. */
+		target_len = git_win32_path_remove_namespace(target, target_len);
 
 		/* Need one additional character in the target buffer
-		* for the terminating NULL. */
+		 * for the terminating NULL. */
 		if (GIT_WIN_PATH_UTF16 > target_len) {
 			wcscpy(dest, target);
 			error = (int)target_len;
@@ -379,4 +416,96 @@ int git_win32_path_readlink_w(git_win32_path dest, const git_win32_path path)
 on_error:
 	CloseHandle(handle);
 	return error;
+}
+
+/**
+ * Removes any trailing backslashes from a path, except in the case of a drive
+ * letter path (C:\, D:\, etc.). This function cannot fail.
+ *
+ * @param path The path which should be trimmed.
+ * @return The length of the modified string (<= the input length)
+ */
+size_t git_win32_path_trim_end(wchar_t *str, size_t len)
+{
+	while (1) {
+		if (!len || str[len - 1] != L'\\')
+			break;
+
+		/*
+		 * Don't trim backslashes from drive letter paths, which
+		 * are 3 characters long and of the form C:\, D:\, etc.
+		 */
+		if (len == 3 && git_win32__isalpha(str[0]) && str[1] == ':')
+			break;
+
+		len--;
+	}
+
+	str[len] = L'\0';
+
+	return len;
+}
+
+/**
+ * Removes any of the following namespace prefixes from a path,
+ * if found: "\??\", "\\?\", "\\?\UNC\". This function cannot fail.
+ *
+ * @param path The path which should be converted.
+ * @return The length of the modified string (<= the input length)
+ */
+size_t git_win32_path_remove_namespace(wchar_t *str, size_t len)
+{
+	static const wchar_t dosdevices_namespace[] = L"\\\?\?\\";
+	static const wchar_t nt_namespace[] = L"\\\\?\\";
+	static const wchar_t unc_namespace_remainder[] = L"UNC\\";
+	static const wchar_t unc_prefix[] = L"\\\\";
+
+	const wchar_t *prefix = NULL, *remainder = NULL;
+	size_t prefix_len = 0, remainder_len = 0;
+
+	/* "\??\" -- DOS Devices prefix */
+	if (len >= CONST_STRLEN(dosdevices_namespace) &&
+		!wcsncmp(str, dosdevices_namespace, CONST_STRLEN(dosdevices_namespace))) {
+		remainder = str + CONST_STRLEN(dosdevices_namespace);
+		remainder_len = len - CONST_STRLEN(dosdevices_namespace);
+	}
+	/* "\\?\" -- NT namespace prefix */
+	else if (len >= CONST_STRLEN(nt_namespace) &&
+		!wcsncmp(str, nt_namespace, CONST_STRLEN(nt_namespace))) {
+		remainder = str + CONST_STRLEN(nt_namespace);
+		remainder_len = len - CONST_STRLEN(nt_namespace);
+	}
+
+	/* "\??\UNC\", "\\?\UNC\" -- UNC prefix */
+	if (remainder_len >= CONST_STRLEN(unc_namespace_remainder) &&
+		!wcsncmp(remainder, unc_namespace_remainder, CONST_STRLEN(unc_namespace_remainder))) {
+
+		/*
+		 * The proper Win32 path for a UNC share has "\\" at beginning of it
+		 * and looks like "\\server\share\<folderStructure>".  So remove the
+		 * UNC namespace and add a prefix of "\\" in its place.
+		 */
+		remainder += CONST_STRLEN(unc_namespace_remainder);
+		remainder_len -= CONST_STRLEN(unc_namespace_remainder);
+
+		prefix = unc_prefix;
+		prefix_len = CONST_STRLEN(unc_prefix);
+	}
+
+	/*
+	 * Sanity check that the new string isn't longer than the old one.
+	 * (This could only happen due to programmer error introducing a
+	 * prefix longer than the namespace it replaces.)
+	 */
+	if (remainder && len >= remainder_len + prefix_len) {
+		if (prefix)
+			memmove(str, prefix, prefix_len * sizeof(wchar_t));
+
+		memmove(str + prefix_len, remainder, remainder_len * sizeof(wchar_t));
+
+		len = remainder_len + prefix_len;
+		str[len] = L'\0';
+	}
+
+	return git_win32_path_trim_end(str, len);
 }

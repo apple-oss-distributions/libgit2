@@ -1,5 +1,5 @@
 #include "clar_libgit2.h"
-#include "fileops.h"
+#include "futils.h"
 #include "path.h"
 #include "posix.h"
 
@@ -110,5 +110,5 @@ void test_core_stat__root(void)
 	cl_must_pass(p_stat(root.ptr, &st));
 	cl_assert(S_ISDIR(st.st_mode));
 
-	git_buf_free(&root);
+	git_buf_dispose(&root);
 }

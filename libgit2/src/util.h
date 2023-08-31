@@ -18,16 +18,27 @@
 #include "buffer.h"
 #include "common.h"
 #include "strnlen.h"
-#include "thread-utils.h"
+#include "thread.h"
 
 #define ARRAY_SIZE(x) (sizeof(x)/sizeof(x[0]))
 #define bitsizeof(x) (CHAR_BIT * sizeof(x))
-#define MSB(x, bits) ((x) & (~0ULL << (bitsizeof(x) - (bits))))
+#define MSB(x, bits) ((x) & (~UINT64_C(0) << (bitsizeof(x) - (bits))))
 #ifndef min
 # define min(a,b) ((a) < (b) ? (a) : (b))
 #endif
 #ifndef max
 # define max(a,b) ((a) > (b) ? (a) : (b))
+#endif
+
+#if defined(__GNUC__)
+# define GIT_CONTAINER_OF(ptr, type, member) \
+	__builtin_choose_expr( \
+	    __builtin_offsetof(type, member) == 0 && \
+	    __builtin_types_compatible_p(__typeof__(&((type *) 0)->member), __typeof__(ptr)), \
+		((type *) (ptr)), \
+		(void)0)
+#else
+# define GIT_CONTAINER_OF(ptr, type, member) (type *)(ptr)
 #endif
 
 #define GIT_DATE_RFC2822_SZ  32
@@ -40,141 +51,6 @@
  * this macro will transparently work with wide-char and single-char strings.
  */
 #define CONST_STRLEN(x) ((sizeof(x)/sizeof(x[0])) - 1)
-
-#if defined(GIT_MSVC_CRTDBG)
-
-/* Enable MSVC CRTDBG memory leak reporting.
- *
- * We DO NOT use the "_CRTDBG_MAP_ALLOC" macro described in the MSVC
- * documentation because all allocs/frees in libgit2 already go through
- * the "git__" routines defined in this file.  Simply using the normal
- * reporting mechanism causes all leaks to be attributed to a routine
- * here in util.h (ie, the actual call to calloc()) rather than the
- * caller of git__calloc().
- *
- * Therefore, we declare a set of "git__crtdbg__" routines to replace
- * the corresponding "git__" routines and re-define the "git__" symbols
- * as macros.  This allows us to get and report the file:line info of
- * the real caller.
- *
- * We DO NOT replace the "git__free" routine because it needs to remain
- * a function pointer because it is used as a function argument when
- * setting up various structure "destructors".
- *
- * We also DO NOT use the "_CRTDBG_MAP_ALLOC" macro because it causes
- * "free" to be remapped to "_free_dbg" and this causes problems for
- * structures which define a field named "free".
- *
- * Finally, CRTDBG must be explicitly enabled and configured at program
- * startup.  See tests/main.c for an example.
- */
-
-#include "win32/w32_crtdbg_stacktrace.h"
-
-#define git__malloc(len)                      git__crtdbg__malloc(len, __FILE__, __LINE__)
-#define git__calloc(nelem, elsize)            git__crtdbg__calloc(nelem, elsize, __FILE__, __LINE__)
-#define git__strdup(str)                      git__crtdbg__strdup(str, __FILE__, __LINE__)
-#define git__strndup(str, n)                  git__crtdbg__strndup(str, n, __FILE__, __LINE__)
-#define git__substrdup(str, n)                git__crtdbg__substrdup(str, n, __FILE__, __LINE__)
-#define git__realloc(ptr, size)               git__crtdbg__realloc(ptr, size, __FILE__, __LINE__)
-#define git__reallocarray(ptr, nelem, elsize) git__crtdbg__reallocarray(ptr, nelem, elsize, __FILE__, __LINE__)
-#define git__mallocarray(nelem, elsize)       git__crtdbg__mallocarray(nelem, elsize, __FILE__, __LINE__)
-
-#else
-
-/*
- * Custom memory allocation wrappers
- * that set error code and error message
- * on allocation failure
- */
-GIT_INLINE(void *) git__malloc(size_t len)
-{
-	void *ptr = malloc(len);
-	if (!ptr) giterr_set_oom();
-	return ptr;
-}
-
-GIT_INLINE(void *) git__calloc(size_t nelem, size_t elsize)
-{
-	void *ptr = calloc(nelem, elsize);
-	if (!ptr) giterr_set_oom();
-	return ptr;
-}
-
-GIT_INLINE(char *) git__strdup(const char *str)
-{
-	char *ptr = strdup(str);
-	if (!ptr) giterr_set_oom();
-	return ptr;
-}
-
-GIT_INLINE(char *) git__strndup(const char *str, size_t n)
-{
-	size_t length = 0, alloclength;
-	char *ptr;
-
-	length = p_strnlen(str, n);
-
-	if (GIT_ADD_SIZET_OVERFLOW(&alloclength, length, 1) ||
-		!(ptr = git__malloc(alloclength)))
-		return NULL;
-
-	if (length)
-		memcpy(ptr, str, length);
-
-	ptr[length] = '\0';
-
-	return ptr;
-}
-
-/* NOTE: This doesn't do null or '\0' checking.  Watch those boundaries! */
-GIT_INLINE(char *) git__substrdup(const char *start, size_t n)
-{
-	char *ptr;
-	size_t alloclen;
-
-	if (GIT_ADD_SIZET_OVERFLOW(&alloclen, n, 1) ||
-		!(ptr = git__malloc(alloclen)))
-		return NULL;
-
-	memcpy(ptr, start, n);
-	ptr[n] = '\0';
-	return ptr;
-}
-
-GIT_INLINE(void *) git__realloc(void *ptr, size_t size)
-{
-	void *new_ptr = realloc(ptr, size);
-	if (!new_ptr) giterr_set_oom();
-	return new_ptr;
-}
-
-/**
- * Similar to `git__realloc`, except that it is suitable for reallocing an
- * array to a new number of elements of `nelem`, each of size `elsize`.
- * The total size calculation is checked for overflow.
- */
-GIT_INLINE(void *) git__reallocarray(void *ptr, size_t nelem, size_t elsize)
-{
-	size_t newsize;
-	return GIT_MULTIPLY_SIZET_OVERFLOW(&newsize, nelem, elsize) ?
-		NULL : realloc(ptr, newsize);
-}
-
-/**
- * Similar to `git__calloc`, except that it does not zero memory.
- */
-GIT_INLINE(void *) git__mallocarray(size_t nelem, size_t elsize)
-{
-	return git__reallocarray(NULL, nelem, elsize);
-}
-
-#endif /* !MSVC_CTRDBG */
-
-GIT_INLINE(void) git__free(void *ptr)
-{
-	free(ptr);
-}
 
 #define STRCMP_CASESELECT(IGNORE_CASE, STR1, STR2) \
 	((IGNORE_CASE) ? strcasecmp((STR1), (STR2)) : strcmp((STR1), (STR2)))
@@ -261,10 +137,6 @@ extern void git__tsort_r(
 extern void git__qsort_r(
 	void *els, size_t nel, size_t elsize, git__sort_r_cmp cmp, void *payload);
 
-extern void git__insertsort_r(
-	void *els, size_t nel, size_t elsize, void *swapel,
-	git__sort_r_cmp cmp, void *payload);
-
 /**
  * @param position If non-NULL, this will be set to the position where the
  * 		element is or would be inserted if not found.
@@ -285,40 +157,52 @@ extern int git__bsearch_r(
 	void *payload,
 	size_t *position);
 
+#define git__strcmp strcmp
+#define git__strncmp strncmp
+
 extern int git__strcmp_cb(const void *a, const void *b);
 extern int git__strcasecmp_cb(const void *a, const void *b);
 
-extern int git__strcmp(const char *a, const char *b);
 extern int git__strcasecmp(const char *a, const char *b);
-extern int git__strncmp(const char *a, const char *b, size_t sz);
 extern int git__strncasecmp(const char *a, const char *b, size_t sz);
 
 extern int git__strcasesort_cmp(const char *a, const char *b);
 
+/*
+ * Compare some NUL-terminated `a` to a possibly non-NUL terminated
+ * `b` of length `b_len`; like `strncmp` but ensuring that
+ * `strlen(a) == b_len` as well.
+ */
+GIT_INLINE(int) git__strlcmp(const char *a, const char *b, size_t b_len)
+{
+	int cmp = strncmp(a, b, b_len);
+	return cmp ? cmp : (int)a[b_len];
+}
+
 typedef struct {
-	git_atomic refcount;
+	git_atomic32 refcount;
 	void *owner;
 } git_refcount;
 
 typedef void (*git_refcount_freeptr)(void *r);
 
 #define GIT_REFCOUNT_INC(r) { \
-	git_atomic_inc(&(r)->rc.refcount);	\
+	git_atomic32_inc(&(r)->rc.refcount);	\
 }
 
 #define GIT_REFCOUNT_DEC(_r, do_free) { \
 	git_refcount *r = &(_r)->rc; \
-	int val = git_atomic_dec(&r->refcount); \
+	int val = git_atomic32_dec(&r->refcount); \
 	if (val <= 0 && r->owner == NULL) { do_free(_r); } \
 }
 
 #define GIT_REFCOUNT_OWN(r, o) { \
-	(r)->rc.owner = o; \
+	(void)git_atomic_swap((r)->rc.owner, o); \
 }
 
-#define GIT_REFCOUNT_OWNER(r) ((r)->rc.owner)
+#define GIT_REFCOUNT_OWNER(r) git_atomic_load((r)->rc.owner)
 
-#define GIT_REFCOUNT_VAL(r) git_atomic_get((r)->rc.refcount)
+#define GIT_REFCOUNT_VAL(r) git_atomic32_get((r)->rc.refcount)
 
 
 static signed char from_hex[] = {
@@ -444,17 +328,6 @@ extern int git__date_rfc2822_fmt(char *out, size_t len, const git_time *date);
 extern size_t git__unescape(char *str);
 
 /*
- * Iterate through an UTF-8 string, yielding one
- * codepoint at a time.
- *
- * @param str current position in the string
- * @param str_len size left in the string; -1 if the string is NULL-terminated
- * @param dst pointer where to store the current codepoint
- * @return length in bytes of the read codepoint; -1 if the codepoint was invalid
- */
-extern int git__utf8_iterate(const uint8_t *str, int str_len, int32_t *dst);
-
-/*
  * Safely zero-out memory, making sure that the compiler
  * doesn't optimize away the operation.
  */
@@ -474,22 +347,9 @@ GIT_INLINE(void) git__memzero(void *data, size_t size)
 
 GIT_INLINE(double) git__timer(void)
 {
-	/* We need the initial tick count to detect if the tick
-	 * count has rolled over. */
-	static DWORD initial_tick_count = 0;
-
-	/* GetTickCount returns the number of milliseconds that have
+	/* GetTickCount64 returns the number of milliseconds that have
 	 * elapsed since the system was started. */
-	DWORD count = GetTickCount();
-
-	if(initial_tick_count == 0) {
-		initial_tick_count = count;
-	} else if (count < initial_tick_count) {
-		/* The tick count has rolled over - adjust for it. */
-		count = (0xFFFFFFFF - initial_tick_count) + count;
-	}
-
-	return (double) count / (double) 1000;
+	return (double) GetTickCount64() / (double) 1000;
 }
 
 #elif __APPLE__
@@ -510,7 +370,7 @@ GIT_INLINE(double) git__timer(void)
    return (double)time * scaling_factor / 1.0E9;
 }
 
-#elif defined(AMIGA)
+#elif defined(__amigaos4__)
 
 #include <proto/timer.h>
 
@@ -527,21 +387,27 @@ GIT_INLINE(double) git__timer(void)
 
 GIT_INLINE(double) git__timer(void)
 {
-	struct timespec tp;
+	struct timeval tv;
 
-	if (clock_gettime(CLOCK_MONOTONIC, &tp) == 0) {
+#ifdef CLOCK_MONOTONIC
+	struct timespec tp;
+	if (clock_gettime(CLOCK_MONOTONIC, &tp) == 0)
 		return (double) tp.tv_sec + (double) tp.tv_nsec / 1.0E9;
-	} else {
-		/* Fall back to using gettimeofday */
-		struct timeval tv;
-		struct timezone tz;
-		gettimeofday(&tv, &tz);
-		return (double)tv.tv_sec + (double)tv.tv_usec / 1.0E6;
-	}
+#endif
+
+	/* Fall back to using gettimeofday */
+	gettimeofday(&tv, NULL);
+	return (double)tv.tv_sec + (double)tv.tv_usec / 1.0E6;
 }
 
 #endif
 
 extern int git__getenv(git_buf *out, const char *name);
+
+extern int git__online_cpus(void);
+
+GIT_INLINE(int) git__noop(void) { return 0; }
+
+#include "alloc.h"
 
 #endif

@@ -15,17 +15,16 @@
 #include "merge.h"
 #include "vector.h"
 
+static int get_revision(git_commit_list_node **out, git_revwalk *walk, git_commit_list **list);
+
 git_commit_list_node *git_revwalk__commit_lookup(
 	git_revwalk *walk, const git_oid *oid)
 {
 	git_commit_list_node *commit;
-	khiter_t pos;
-	int ret;
 
 	/* lookup and reserve space if not already present */
-	pos = git_oidmap_lookup_index(walk->commits, oid);
-	if (git_oidmap_valid_index(walk->commits, pos))
-		return git_oidmap_value_at(walk->commits, pos);
+	if ((commit = git_oidmap_get(walk->commits, oid)) != NULL)
+		return commit;
 
 	commit = git_commit_list_alloc_node(walk);
 	if (commit == NULL)
@@ -33,14 +32,13 @@ git_commit_list_node *git_revwalk__commit_lookup(
 
 	git_oid_cpy(&commit->oid, oid);
 
-	pos = git_oidmap_put(walk->commits, &commit->oid, &ret);
-	assert(ret != 0);
-	git_oidmap_set_value_at(walk->commits, pos, commit);
+	if ((git_oidmap_set(walk->commits, &commit->oid, commit)) < 0)
+		return NULL;
 
 	return commit;
 }
 
-static int push_commit(git_revwalk *walk, const git_oid *oid, int uninteresting, int from_glob)
+int git_revwalk__push_commit(git_revwalk *walk, const git_oid *oid, const git_revwalk__push_options *opts)
 {
 	git_oid commit_id;
 	int error;
@@ -48,19 +46,19 @@ static int push_commit(git_revwalk *walk, const git_oid *oid, int uninteresting,
 	git_commit_list_node *commit;
 	git_commit_list *list;
 
-	if ((error = git_object_lookup(&oobj, walk->repo, oid, GIT_OBJ_ANY)) < 0)
+	if ((error = git_object_lookup(&oobj, walk->repo, oid, GIT_OBJECT_ANY)) < 0)
 		return error;
 
-	error = git_object_peel(&obj, oobj, GIT_OBJ_COMMIT);
+	error = git_object_peel(&obj, oobj, GIT_OBJECT_COMMIT);
 	git_object_free(oobj);
 
 	if (error == GIT_ENOTFOUND || error == GIT_EINVALIDSPEC || error == GIT_EPEEL) {
 		/* If this comes from e.g. push_glob("tags"), ignore this */
-		if (from_glob)
+		if (opts->from_glob)
 			return 0;
 
-		giterr_set(GITERR_INVALID, "object is not a committish");
-		return -1;
+		git_error_set(GIT_ERROR_INVALID, "object is not a committish");
+		return error;
 	}
 	if (error < 0)
 		return error;
@@ -76,15 +74,19 @@ static int push_commit(git_revwalk *walk, const git_oid *oid, int uninteresting,
 	if (commit->uninteresting)
 		return 0;
 
-	if (uninteresting)
+	if (opts->uninteresting) {
+		walk->limited = 1;
 		walk->did_hide = 1;
-	else
+	} else {
 		walk->did_push = 1;
+	}
 
-	commit->uninteresting = uninteresting;
+	commit->uninteresting = opts->uninteresting;
 	list = walk->user_input;
-	if (git_commit_list_insert(commit, &list) == NULL) {
-		giterr_set_oom();
+	if ((opts->insert_by_date &&
+	    git_commit_list_insert_by_date(commit, &list) == NULL) ||
+	    git_commit_list_insert(commit, &list) == NULL) {
+		git_error_set_oom();
 		return -1;
 	}
 
@@ -95,43 +97,57 @@ static int push_commit(git_revwalk *walk, const git_oid *oid, int uninteresting,
 
 int git_revwalk_push(git_revwalk *walk, const git_oid *oid)
 {
-	assert(walk && oid);
-	return push_commit(walk, oid, 0, false);
+	git_revwalk__push_options opts = GIT_REVWALK__PUSH_OPTIONS_INIT;
+
+	GIT_ASSERT_ARG(walk);
+	GIT_ASSERT_ARG(oid);
+
+	return git_revwalk__push_commit(walk, oid, &opts);
 }
 
 
 int git_revwalk_hide(git_revwalk *walk, const git_oid *oid)
 {
-	assert(walk && oid);
-	return push_commit(walk, oid, 1, false);
+	git_revwalk__push_options opts = GIT_REVWALK__PUSH_OPTIONS_INIT;
+
+	GIT_ASSERT_ARG(walk);
+	GIT_ASSERT_ARG(oid);
+
+	opts.uninteresting = 1;
+	return git_revwalk__push_commit(walk, oid, &opts);
 }
 
-static int push_ref(git_revwalk *walk, const char *refname, int hide, int from_glob)
+int git_revwalk__push_ref(git_revwalk *walk, const char *refname, const git_revwalk__push_options *opts)
 {
 	git_oid oid;
 
 	if (git_reference_name_to_id(&oid, walk->repo, refname) < 0)
 		return -1;
 
-	return push_commit(walk, &oid, hide, from_glob);
+	return git_revwalk__push_commit(walk, &oid, opts);
 }
 
-static int push_glob(git_revwalk *walk, const char *glob, int hide)
+int git_revwalk__push_glob(git_revwalk *walk, const char *glob, const git_revwalk__push_options *given_opts)
 {
+	git_revwalk__push_options opts = GIT_REVWALK__PUSH_OPTIONS_INIT;
 	int error = 0;
 	git_buf buf = GIT_BUF_INIT;
 	git_reference *ref;
 	git_reference_iterator *iter;
 	size_t wildcard;
 
-	assert(walk && glob);
+	GIT_ASSERT_ARG(walk);
+	GIT_ASSERT_ARG(glob);
+
+	if (given_opts)
+		memcpy(&opts, given_opts, sizeof(opts));
 
 	/* refs/ is implied if not given in the glob */
 	if (git__prefixcmp(glob, GIT_REFS_DIR) != 0)
 		git_buf_joinpath(&buf, GIT_REFS_DIR, glob);
 	else
 		git_buf_puts(&buf, glob);
-	GITERR_CHECK_ALLOC_BUF(&buf);
+	GIT_ERROR_CHECK_ALLOC_BUF(&buf);
 
 	/* If no '?', '*' or '[' exist, we append '/ *' to the glob */
 	wildcard = strcspn(glob, "?*[");
@@ -141,8 +157,9 @@ static int push_glob(git_revwalk *walk, const char *glob, int hide)
 	if ((error = git_reference_iterator_glob_new(&iter, walk->repo, buf.ptr)) < 0)
 		goto out;
 
+	opts.from_glob = true;
 	while ((error = git_reference_next(&ref, iter)) == 0) {
-		error = push_ref(walk, git_reference_name(ref), hide, true);
+		error = git_revwalk__push_ref(walk, git_reference_name(ref), &opts);
 		git_reference_free(ref);
 		if (error < 0)
 			break;
@@ -152,58 +169,88 @@ static int push_glob(git_revwalk *walk, const char *glob, int hide)
 	if (error == GIT_ITEROVER)
 		error = 0;
 out:
-	git_buf_free(&buf);
+	git_buf_dispose(&buf);
 	return error;
 }
 
 int git_revwalk_push_glob(git_revwalk *walk, const char *glob)
 {
-	assert(walk && glob);
-	return push_glob(walk, glob, 0);
+	git_revwalk__push_options opts = GIT_REVWALK__PUSH_OPTIONS_INIT;
+
+	GIT_ASSERT_ARG(walk);
+	GIT_ASSERT_ARG(glob);
+
+	return git_revwalk__push_glob(walk, glob, &opts);
 }
 
 int git_revwalk_hide_glob(git_revwalk *walk, const char *glob)
 {
-	assert(walk && glob);
-	return push_glob(walk, glob, 1);
+	git_revwalk__push_options opts = GIT_REVWALK__PUSH_OPTIONS_INIT;
+
+	GIT_ASSERT_ARG(walk);
+	GIT_ASSERT_ARG(glob);
+
+	opts.uninteresting = 1;
+	return git_revwalk__push_glob(walk, glob, &opts);
 }
 
 int git_revwalk_push_head(git_revwalk *walk)
 {
-	assert(walk);
-	return push_ref(walk, GIT_HEAD_FILE, 0, false);
+	git_revwalk__push_options opts = GIT_REVWALK__PUSH_OPTIONS_INIT;
+
+	GIT_ASSERT_ARG(walk);
+
+	return git_revwalk__push_ref(walk, GIT_HEAD_FILE, &opts);
 }
 
 int git_revwalk_hide_head(git_revwalk *walk)
 {
-	assert(walk);
-	return push_ref(walk, GIT_HEAD_FILE, 1, false);
+	git_revwalk__push_options opts = GIT_REVWALK__PUSH_OPTIONS_INIT;
+
+	GIT_ASSERT_ARG(walk);
+
+	opts.uninteresting = 1;
+	return git_revwalk__push_ref(walk, GIT_HEAD_FILE, &opts);
 }
 
 int git_revwalk_push_ref(git_revwalk *walk, const char *refname)
 {
-	assert(walk && refname);
-	return push_ref(walk, refname, 0, false);
+	git_revwalk__push_options opts = GIT_REVWALK__PUSH_OPTIONS_INIT;
+
+	GIT_ASSERT_ARG(walk);
+	GIT_ASSERT_ARG(refname);
+
+	return git_revwalk__push_ref(walk, refname, &opts);
 }
 
 int git_revwalk_push_range(git_revwalk *walk, const char *range)
 {
+	git_revwalk__push_options opts = GIT_REVWALK__PUSH_OPTIONS_INIT;
 	git_revspec revspec;
 	int error = 0;
 
 	if ((error = git_revparse(&revspec, walk->repo, range)))
 		return error;
 
-	if (revspec.flags & GIT_REVPARSE_MERGE_BASE) {
-		/* TODO: support "<commit>...<commit>" */
-		giterr_set(GITERR_INVALID, "symmetric differences not implemented in revwalk");
-		return GIT_EINVALIDSPEC;
+	if (!revspec.to) {
+		git_error_set(GIT_ERROR_INVALID, "invalid revspec: range not provided");
+		error = GIT_EINVALIDSPEC;
+		goto out;
 	}
 
-	if ((error = push_commit(walk, git_object_id(revspec.from), 1, false)))
+	if (revspec.flags & GIT_REVSPEC_MERGE_BASE) {
+		/* TODO: support "<commit>...<commit>" */
+		git_error_set(GIT_ERROR_INVALID, "symmetric differences not implemented in revwalk");
+		error = GIT_EINVALIDSPEC;
+		goto out;
+	}
+
+	opts.uninteresting = 1;
+	if ((error = git_revwalk__push_commit(walk, git_object_id(revspec.from), &opts)))
 		goto out;
 
-	error = push_commit(walk, git_object_id(revspec.to), 0, false);
+	opts.uninteresting = 0;
+	error = git_revwalk__push_commit(walk, git_object_id(revspec.to), &opts);
 
 out:
 	git_object_free(revspec.from);
@@ -213,8 +260,13 @@ out:
 
 int git_revwalk_hide_ref(git_revwalk *walk, const char *refname)
 {
-	assert(walk && refname);
-	return push_ref(walk, refname, 1, false);
+	git_revwalk__push_options opts = GIT_REVWALK__PUSH_OPTIONS_INIT;
+
+	GIT_ASSERT_ARG(walk);
+	GIT_ASSERT_ARG(refname);
+
+	opts.uninteresting = 1;
+	return git_revwalk__push_ref(walk, refname, &opts);
 }
 
 static int revwalk_enqueue_timesort(git_revwalk *walk, git_commit_list_node *commit)
@@ -239,15 +291,16 @@ static int revwalk_next_timesort(git_commit_list_node **object_out, git_revwalk 
 		}
 	}
 
-	giterr_clear();
+	git_error_clear();
 	return GIT_ITEROVER;
 }
 
 static int revwalk_next_unsorted(git_commit_list_node **object_out, git_revwalk *walk)
 {
+	int error;
 	git_commit_list_node *next;
 
-	while ((next = git_commit_list_pop(&walk->iterator_rand)) != NULL) {
+	while (!(error = get_revision(&next, walk, &walk->iterator_rand))) {
 		/* Some commits might become uninteresting after being added to the list */
 		if (!next->uninteresting) {
 			*object_out = next;
@@ -255,15 +308,15 @@ static int revwalk_next_unsorted(git_commit_list_node **object_out, git_revwalk 
 		}
 	}
 
-	giterr_clear();
-	return GIT_ITEROVER;
+	return error;
 }
 
 static int revwalk_next_toposort(git_commit_list_node **object_out, git_revwalk *walk)
 {
+	int error;
 	git_commit_list_node *next;
 
-	while ((next = git_commit_list_pop(&walk->iterator_topo)) != NULL) {
+	while (!(error = get_revision(&next, walk, &walk->iterator_topo))) {
 		/* Some commits might become uninteresting after being added to the list */
 		if (!next->uninteresting) {
 			*object_out = next;
@@ -271,8 +324,7 @@ static int revwalk_next_toposort(git_commit_list_node **object_out, git_revwalk 
 		}
 	}
 
-	giterr_clear();
-	return GIT_ITEROVER;
+	return error;
 }
 
 static int revwalk_next_reverse(git_commit_list_node **object_out, git_revwalk *walk)
@@ -428,8 +480,8 @@ static int limit_list(git_commit_list **out, git_revwalk *walk, git_commit_list 
 			break;
 		}
 
-		if (!commit->uninteresting && walk->hide_cb && walk->hide_cb(&commit->oid, walk->hide_cb_payload))
-				continue;
+		if (walk->hide_cb && walk->hide_cb(&commit->oid, walk->hide_cb_payload))
+			continue;
 
 		time = commit->time;
 		p = &git_commit_list_insert(commit, p)->next;
@@ -437,6 +489,30 @@ static int limit_list(git_commit_list **out, git_revwalk *walk, git_commit_list 
 
 	git_commit_list_free(&list);
 	*out = newlist;
+	return 0;
+}
+
+static int get_revision(git_commit_list_node **out, git_revwalk *walk, git_commit_list **list)
+{
+	int error;
+	git_commit_list_node *commit;
+
+	commit = git_commit_list_pop(list);
+	if (!commit) {
+		git_error_clear();
+		return GIT_ITEROVER;
+	}
+
+	/*
+	 * If we did not run limit_list and we must add parents to the
+	 * list ourselves.
+	 */
+	if (!walk->limited) {
+		if ((error = add_parents_to_list(walk, commit, list)) < 0)
+			return error;
+	}
+
+	*out = commit;
 	return 0;
 }
 
@@ -534,7 +610,7 @@ static int prepare_walk(git_revwalk *walk)
 
 	/* If there were no pushes, we know that the walk is already over */
 	if (!walk->did_push) {
-		giterr_clear();
+		git_error_clear();
 		return GIT_ITEROVER;
 	}
 
@@ -552,7 +628,7 @@ static int prepare_walk(git_revwalk *walk)
 		}
 	}
 
-	if ((error = limit_list(&commits, walk, commits)) < 0)
+	if (walk->limited && (error = limit_list(&commits, walk, commits)) < 0)
 		return error;
 
 	if (walk->sorting & GIT_SORT_TOPOLOGICAL) {
@@ -596,15 +672,13 @@ static int prepare_walk(git_revwalk *walk)
 int git_revwalk_new(git_revwalk **revwalk_out, git_repository *repo)
 {
 	git_revwalk *walk = git__calloc(1, sizeof(git_revwalk));
-	GITERR_CHECK_ALLOC(walk);
+	GIT_ERROR_CHECK_ALLOC(walk);
 
-	walk->commits = git_oidmap_alloc();
-	GITERR_CHECK_ALLOC(walk->commits);
-
-	if (git_pqueue_init(&walk->iterator_time, 0, 8, git_commit_list_time_cmp) < 0)
+	if (git_oidmap_new(&walk->commits) < 0 ||
+	    git_pqueue_init(&walk->iterator_time, 0, 8, git_commit_list_time_cmp) < 0 ||
+	    git_pool_init(&walk->commit_pool, COMMIT_ALLOC) < 0)
 		return -1;
 
-	git_pool_init(&walk->commit_pool, COMMIT_ALLOC);
 	walk->get_next = &revwalk_next_unsorted;
 	walk->enqueue = &revwalk_enqueue_unsorted;
 
@@ -635,13 +709,14 @@ void git_revwalk_free(git_revwalk *walk)
 
 git_repository *git_revwalk_repository(git_revwalk *walk)
 {
-	assert(walk);
+	GIT_ASSERT_ARG_WITH_RETVAL(walk, NULL);
+
 	return walk->repo;
 }
 
-void git_revwalk_sorting(git_revwalk *walk, unsigned int sort_mode)
+int git_revwalk_sorting(git_revwalk *walk, unsigned int sort_mode)
 {
-	assert(walk);
+	GIT_ASSERT_ARG(walk);
 
 	if (walk->walking)
 		git_revwalk_reset(walk);
@@ -655,11 +730,17 @@ void git_revwalk_sorting(git_revwalk *walk, unsigned int sort_mode)
 		walk->get_next = &revwalk_next_unsorted;
 		walk->enqueue = &revwalk_enqueue_unsorted;
 	}
+
+	if (walk->sorting != GIT_SORT_NONE)
+		walk->limited = 1;
+
+	return 0;
 }
 
-void git_revwalk_simplify_first_parent(git_revwalk *walk)
+int git_revwalk_simplify_first_parent(git_revwalk *walk)
 {
 	walk->first_parent = 1;
+	return 0;
 }
 
 int git_revwalk_next(git_oid *oid, git_revwalk *walk)
@@ -667,7 +748,8 @@ int git_revwalk_next(git_oid *oid, git_revwalk *walk)
 	int error;
 	git_commit_list_node *next;
 
-	assert(walk && oid);
+	GIT_ASSERT_ARG(walk);
+	GIT_ASSERT_ARG(oid);
 
 	if (!walk->walking) {
 		if ((error = prepare_walk(walk)) < 0)
@@ -678,7 +760,7 @@ int git_revwalk_next(git_oid *oid, git_revwalk *walk)
 
 	if (error == GIT_ITEROVER) {
 		git_revwalk_reset(walk);
-		giterr_clear();
+		git_error_clear();
 		return GIT_ITEROVER;
 	}
 
@@ -688,11 +770,11 @@ int git_revwalk_next(git_oid *oid, git_revwalk *walk)
 	return error;
 }
 
-void git_revwalk_reset(git_revwalk *walk)
+int git_revwalk_reset(git_revwalk *walk)
 {
 	git_commit_list_node *commit;
 
-	assert(walk);
+	GIT_ASSERT_ARG(walk);
 
 	git_oidmap_foreach_value(walk->commits, commit, {
 		commit->seen = 0;
@@ -710,7 +792,11 @@ void git_revwalk_reset(git_revwalk *walk)
 	git_commit_list_free(&walk->user_input);
 	walk->first_parent = 0;
 	walk->walking = 0;
+	walk->limited = 0;
 	walk->did_push = walk->did_hide = 0;
+	walk->sorting = GIT_SORT_NONE;
+
+	return 0;
 }
 
 int git_revwalk_add_hide_cb(
@@ -718,19 +804,16 @@ int git_revwalk_add_hide_cb(
 	git_revwalk_hide_cb hide_cb,
 	void *payload)
 {
-	assert(walk);
+	GIT_ASSERT_ARG(walk);
 
 	if (walk->walking)
 		git_revwalk_reset(walk);
 
-	if (walk->hide_cb) {
-		/* There is already a callback added */
-		giterr_set(GITERR_INVALID, "there is already a callback added to hide commits in revwalk");
-		return -1;
-	}
-
 	walk->hide_cb = hide_cb;
 	walk->hide_cb_payload = payload;
+
+	if (hide_cb)
+		walk->limited = 1;
 
 	return 0;
 }

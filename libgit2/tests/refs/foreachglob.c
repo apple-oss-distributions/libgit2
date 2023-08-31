@@ -48,8 +48,8 @@ static void assert_retrieval(const char *glob, int expected_count)
 
 void test_refs_foreachglob__retrieve_all_refs(void)
 {
-	/* 12 heads (including one packed head) + 1 note + 2 remotes + 7 tags */
-	assert_retrieval("*", 22);
+	/* 12 heads (including one packed head) + 1 note + 2 remotes + 7 tags + 1 blob */
+	assert_retrieval("*", 23);
 }
 
 void test_refs_foreachglob__retrieve_remote_branches(void)
@@ -60,6 +60,11 @@ void test_refs_foreachglob__retrieve_remote_branches(void)
 void test_refs_foreachglob__retrieve_local_branches(void)
 {
 	assert_retrieval("refs/heads/*", 12);
+}
+
+void test_refs_foreachglob__retrieve_nonexistant(void)
+{
+	assert_retrieval("refs/nonexistent/*", 0);
 }
 
 void test_refs_foreachglob__retrieve_partially_named_references(void)

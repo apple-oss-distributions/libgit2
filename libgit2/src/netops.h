@@ -11,9 +11,10 @@
 
 #include "posix.h"
 #include "stream.h"
+#include "net.h"
 
 #ifdef GIT_OPENSSL
-# include <openssl/ssl.h>
+# include "streams/openssl.h"
 #endif
 
 typedef struct gitno_ssl {
@@ -61,39 +62,7 @@ void gitno_buffer_setup_fromstream(git_stream *st, gitno_buffer *buf, char *data
 void gitno_buffer_setup_callback(gitno_buffer *buf, char *data, size_t len, int (*recv)(gitno_buffer *buf), void *cb_data);
 int gitno_recv(gitno_buffer *buf);
 
-void gitno_consume(gitno_buffer *buf, const char *ptr);
+int gitno_consume(gitno_buffer *buf, const char *ptr);
 void gitno_consume_n(gitno_buffer *buf, size_t cons);
-
-typedef struct gitno_connection_data {
-	char *host;
-	char *port;
-	char *path;
-	char *user;
-	char *pass;
-	bool use_ssl;
-} gitno_connection_data;
-
-/*
- * This replaces all the pointers in `data` with freshly-allocated strings,
- * that the caller is responsible for freeing.
- * `gitno_connection_data_free_ptrs` is good for this.
- */
-
-int gitno_connection_data_from_url(
-		gitno_connection_data *data,
-		const char *url,
-		const char *service_suffix);
-
-/* This frees all the pointers IN the struct, but not the struct itself. */
-void gitno_connection_data_free_ptrs(gitno_connection_data *data);
-
-int gitno_extract_url_parts(
-		char **host,
-		char **port,
-		char **path,
-		char **username,
-		char **password,
-		const char *url,
-		const char *default_port);
 
 #endif

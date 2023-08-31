@@ -1,3 +1,5 @@
+#include <stdint.h>
+
 #include "clar_libgit2.h"
 #include "vector.h"
 
@@ -6,7 +8,7 @@ void test_core_vector__0(void)
 {
 	git_vector x;
 	int i;
-	git_vector_init(&x, 1, NULL);
+	cl_git_pass(git_vector_init(&x, 1, NULL));
 	for (i = 0; i < 10; ++i) {
 		git_vector_insert(&x, (void*) 0xabc);
 	}
@@ -18,13 +20,13 @@ void test_core_vector__0(void)
 void test_core_vector__1(void)
 {
 	git_vector x;
-	// make initial capacity exact for our insertions.
-	git_vector_init(&x, 3, NULL);
+	/* make initial capacity exact for our insertions. */
+	cl_git_pass(git_vector_init(&x, 3, NULL));
 	git_vector_insert(&x, (void*) 0xabc);
 	git_vector_insert(&x, (void*) 0xdef);
 	git_vector_insert(&x, (void*) 0x123);
 
-	git_vector_remove(&x, 0); // used to read past array bounds.
+	git_vector_remove(&x, 0); /* used to read past array bounds. */
 	git_vector_free(&x);
 }
 
@@ -66,15 +68,15 @@ void test_core_vector__2(void)
 
 static int compare_them(const void *a, const void *b)
 {
-	return (int)((long)a - (long)b);
+	return (int)((intptr_t)a - (intptr_t)b);
 }
 
 /* insert_sorted */
 void test_core_vector__3(void)
 {
 	git_vector x;
-	long i;
-	git_vector_init(&x, 1, &compare_them);
+	intptr_t i;
+	cl_git_pass(git_vector_init(&x, 1, &compare_them));
 
 	for (i = 0; i < 10; i += 2) {
 		git_vector_insert_sorted(&x, (void*)(i + 1), NULL);
@@ -96,8 +98,8 @@ void test_core_vector__3(void)
 void test_core_vector__4(void)
 {
 	git_vector x;
-	long i;
-	git_vector_init(&x, 1, &compare_them);
+	intptr_t i;
+	cl_git_pass(git_vector_init(&x, 1, &compare_them));
 
 	for (i = 0; i < 10; i += 2) {
 		git_vector_insert_sorted(&x, (void*)(i + 1), NULL);
@@ -161,7 +163,7 @@ void test_core_vector__5(void)
 	git_vector x;
 	int i;
 
-	git_vector_init(&x, 1, &compare_structs);
+	cl_git_pass(git_vector_init(&x, 1, &compare_structs));
 
 	for (i = 0; i < 10; i += 2)
 		git_vector_insert_sorted(&x, alloc_struct(i), &merge_structs);
@@ -203,7 +205,7 @@ void test_core_vector__remove_matching(void)
 	size_t i;
 	void *compare;
 
-	git_vector_init(&x, 1, NULL);
+	cl_git_pass(git_vector_init(&x, 1, NULL));
 	git_vector_insert(&x, (void*) 0x001);
 
 	cl_assert(x.length == 1);

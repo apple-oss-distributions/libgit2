@@ -49,13 +49,10 @@ void test_index_bypath__add_submodule_unregistered(void)
 
 void test_index_bypath__add_hidden(void)
 {
+#ifdef GIT_WIN32
 	const git_index_entry *entry;
 	bool hidden;
 
-	GIT_UNUSED(entry);
-	GIT_UNUSED(hidden);
-
-#ifdef GIT_WIN32
 	cl_git_mkfile("submod2/hidden_file", "you can't see me");
 
 	cl_git_pass(git_win32__hidden(&hidden, "submod2/hidden_file"));
@@ -285,7 +282,7 @@ void test_index_bypath__add_honors_conflict_mode(void)
 	cl_git_pass(git_index_remove_bypath(g_idx, "README.txt"));
 
 	for (stage = 1; stage <= 3; stage++) {
-		new_entry.flags = stage << GIT_IDXENTRY_STAGESHIFT;
+		new_entry.flags = stage << GIT_INDEX_ENTRY_STAGESHIFT;
 		cl_git_pass(git_index_add(g_idx, &new_entry));
 	}
 
@@ -317,7 +314,7 @@ void test_index_bypath__add_honors_conflict_case(void)
 	cl_git_pass(git_index_remove_bypath(g_idx, "README.txt"));
 
 	for (stage = 1; stage <= 3; stage++) {
-		new_entry.flags = stage << GIT_IDXENTRY_STAGESHIFT;
+		new_entry.flags = stage << GIT_INDEX_ENTRY_STAGESHIFT;
 		cl_git_pass(git_index_add(g_idx, &new_entry));
 	}
 
@@ -338,7 +335,7 @@ void test_index_bypath__add_honors_symlink(void)
 	git_index_entry new_entry;
 	int symlinks;
 
-	cl_git_pass(git_repository__cvar(&symlinks, g_repo, GIT_CVAR_SYMLINKS));
+	cl_git_pass(git_repository__configmap_lookup(&symlinks, g_repo, GIT_CONFIGMAP_SYMLINKS));
 
 	if (symlinks)
 		cl_skip();

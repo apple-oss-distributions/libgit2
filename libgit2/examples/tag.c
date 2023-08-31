@@ -31,19 +31,19 @@
  */
 
 /** tag_options represents the parsed command line options */
-typedef struct {
+struct tag_options {
 	const char *message;
 	const char *pattern;
 	const char *tag_name;
 	const char *target;
 	int num_lines;
 	int force;
-} tag_options;
+};
 
 /** tag_state represents the current program state for dragging around */
 typedef struct {
 	git_repository *repo;
-	tag_options *opts;
+	struct tag_options *opts;
 } tag_state;
 
 /** An action to execute based on the command line arguments */
@@ -135,10 +135,10 @@ static int each_tag(const char *name, tag_state *state)
 			"Failed to lookup rev", name);
 
 	switch (git_object_type(obj)) {
-		case GIT_OBJ_TAG:
+		case GIT_OBJECT_TAG:
 			print_tag((git_tag *) obj, state);
 			break;
-		case GIT_OBJ_COMMIT:
+		case GIT_OBJECT_COMMIT:
 			print_commit((git_commit *) obj, name, state);
 			break;
 		default:
@@ -162,12 +162,12 @@ static void action_list_tags(tag_state *state)
 		each_tag(tag_names.strings[i], state);
 	}
 
-	git_strarray_free(&tag_names);
+	git_strarray_dispose(&tag_names);
 }
 
 static void action_delete_tag(tag_state *state)
 {
-	tag_options *opts = state->opts;
+	struct tag_options *opts = state->opts;
 	git_object *obj;
 	git_buf abbrev_oid = {0};
 
@@ -184,14 +184,14 @@ static void action_delete_tag(tag_state *state)
 
 	printf("Deleted tag '%s' (was %s)\n", opts->tag_name, abbrev_oid.ptr);
 
-	git_buf_free(&abbrev_oid);
+	git_buf_dispose(&abbrev_oid);
 	git_object_free(obj);
 }
 
-static void action_create_lighweight_tag(tag_state *state)
+static void action_create_lightweight_tag(tag_state *state)
 {
 	git_repository *repo = state->repo;
-	tag_options *opts = state->opts;
+	struct tag_options *opts = state->opts;
 	git_oid oid;
 	git_object *target;
 
@@ -213,7 +213,7 @@ static void action_create_lighweight_tag(tag_state *state)
 static void action_create_tag(tag_state *state)
 {
 	git_repository *repo = state->repo;
-	tag_options *opts = state->opts;
+	struct tag_options *opts = state->opts;
 	git_signature *tagger;
 	git_oid oid;
 	git_object *target;
@@ -243,7 +243,7 @@ static void print_usage(void)
 }
 
 /** Parse command line arguments and choose action to run when done */
-static void parse_options(tag_action *action, tag_options *opts, int argc, char **argv)
+static void parse_options(tag_action *action, struct tag_options *opts, int argc, char **argv)
 {
 	args_info args = ARGS_INFO_INIT;
 	*action = &action_list_tags;
@@ -260,7 +260,7 @@ static void parse_options(tag_action *action, tag_options *opts, int argc, char 
 				print_usage();
 
 			if (*action != &action_create_tag)
-				*action = &action_create_lighweight_tag;
+				*action = &action_create_lightweight_tag;
 		} else if (!strcmp(curr, "-n")) {
 			opts->num_lines = 1;
 			*action = &action_list_tags;
@@ -281,7 +281,7 @@ static void parse_options(tag_action *action, tag_options *opts, int argc, char 
 }
 
 /** Initialize tag_options struct */
-static void tag_options_init(tag_options *opts)
+static void tag_options_init(struct tag_options *opts)
 {
 	memset(opts, 0, sizeof(*opts));
 
@@ -293,17 +293,11 @@ static void tag_options_init(tag_options *opts)
 	opts->force     = 0;
 }
 
-int main(int argc, char **argv)
+int lg2_tag(git_repository *repo, int argc, char **argv)
 {
-	git_repository *repo;
-	tag_options opts;
+	struct tag_options opts;
 	tag_action action;
 	tag_state state;
-
-	git_libgit2_init();
-
-	check_lg2(git_repository_open_ext(&repo, ".", 0, NULL),
-			"Could not open repository", NULL);
 
 	tag_options_init(&opts);
 	parse_options(&action, &opts, argc, argv);
@@ -311,9 +305,6 @@ int main(int argc, char **argv)
 	state.repo = repo;
 	state.opts = &opts;
 	action(&state);
-
-	git_repository_free(repo);
-	git_libgit2_shutdown();
 
 	return 0;
 }

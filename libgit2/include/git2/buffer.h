@@ -25,33 +25,39 @@ GIT_BEGIN_DECL
  * caller and have the caller take responsibility for freeing that memory.
  * This can be awkward if the caller does not have easy access to the same
  * allocation functions that libgit2 is using.  In those cases, libgit2
- * will fill in a `git_buf` and the caller can use `git_buf_free()` to
+ * will fill in a `git_buf` and the caller can use `git_buf_dispose()` to
  * release it when they are done.
  *
  * A `git_buf` may also be used for the caller to pass in a reference to
  * a block of memory they hold.  In this case, libgit2 will not resize or
  * free the memory, but will read from it as needed.
  *
- * A `git_buf` is a public structure with three fields:
- *
- * - `ptr` points to the start of the allocated memory.  If it is NULL,
- *   then the `git_buf` is considered empty and libgit2 will feel free
- *   to overwrite it with new data.
- *
- * - `size` holds the size (in bytes) of the data that is actually used.
- *
- * - `asize` holds the known total amount of allocated memory if the `ptr`
- *    was allocated by libgit2.  It may be larger than `size`.  If `ptr`
- *    was not allocated by libgit2 and should not be resized and/or freed,
- *    then `asize` will be set to zero.
- *
  * Some APIs may occasionally do something slightly unusual with a buffer,
  * such as setting `ptr` to a value that was passed in by the user.  In
  * those cases, the behavior will be clearly documented by the API.
  */
 typedef struct {
+	/**
+	 * The buffer contents.
+	 *
+	 * `ptr` points to the start of the allocated memory.  If it is NULL,
+	 * then the `git_buf` is considered empty and libgit2 will feel free
+	 * to overwrite it with new data.
+	 */
 	char   *ptr;
-	size_t asize, size;
+
+	/**
+	 * `asize` holds the known total amount of allocated memory if the `ptr`
+	 *  was allocated by libgit2.  It may be larger than `size`.  If `ptr`
+	 *  was not allocated by libgit2 and should not be resized and/or freed,
+	 *  then `asize` will be set to zero.
+	 */
+	size_t asize;
+
+	/**
+	 * `size` holds the size (in bytes) of the data that is actually used.
+	 */
+	size_t size;
 } git_buf;
 
 /**
@@ -69,7 +75,7 @@ typedef struct {
  *
  * @param buffer The buffer to deallocate
  */
-GIT_EXTERN(void) git_buf_free(git_buf *buffer);
+GIT_EXTERN(void) git_buf_dispose(git_buf *buffer);
 
 /**
  * Resize the buffer allocation to make more space.

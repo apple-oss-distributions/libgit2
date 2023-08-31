@@ -3,7 +3,7 @@
 #include "git2/merge.h"
 #include "merge.h"
 #include "refs.h"
-#include "fileops.h"
+#include "futils.h"
 
 static git_repository *repo;
 static git_index *repo_index;
@@ -31,7 +31,7 @@ static git_index *repo_index;
 #define OCTO5_BRANCH		"octo5"
 #define OCTO5_OID			"e4f618a2c3ed0669308735727df5ebf2447f022f"
 
-// Fixture setup and teardown
+/* Fixture setup and teardown */
 void test_merge_workdir_setup__initialize(void)
 {
 	repo = cl_git_sandbox_init(TEST_REPO_PATH);
@@ -49,13 +49,13 @@ static bool test_file_contents(const char *filename, const char *expected)
 	git_buf file_path_buf = GIT_BUF_INIT, file_buf = GIT_BUF_INIT;
 	bool equals;
 	
-	git_buf_printf(&file_path_buf, "%s/%s", git_repository_path(repo), filename);
+	git_buf_joinpath(&file_path_buf, git_repository_path(repo), filename);
 	
 	cl_git_pass(git_futils_readbuffer(&file_buf, file_path_buf.ptr));
 	equals = (strcmp(file_buf.ptr, expected) == 0);
 
-	git_buf_free(&file_path_buf);
-	git_buf_free(&file_buf);
+	git_buf_dispose(&file_path_buf);
+	git_buf_dispose(&file_buf);
 	
 	return equals;
 }
@@ -64,11 +64,11 @@ static void write_file_contents(const char *filename, const char *output)
 {
 	git_buf file_path_buf = GIT_BUF_INIT;
 
-	git_buf_printf(&file_path_buf, "%s/%s", git_repository_path(repo),
+	git_buf_joinpath(&file_path_buf, git_repository_path(repo),
 		filename);
 	cl_git_rewritefile(file_path_buf.ptr, output);
 
-	git_buf_free(&file_path_buf);
+	git_buf_dispose(&file_path_buf);
 }
 
 /* git merge --no-ff octo1 */
@@ -495,10 +495,10 @@ static int create_remote_tracking_branch(const char *branch_name, const char *oi
 	cl_git_rewritefile(git_buf_cstr(&filename), git_buf_cstr(&data));
 
 done:
-	git_buf_free(&remotes_path);
-	git_buf_free(&origin_path);
-	git_buf_free(&filename);
-	git_buf_free(&data);
+	git_buf_dispose(&remotes_path);
+	git_buf_dispose(&origin_path);
+	git_buf_dispose(&filename);
+	git_buf_dispose(&data);
 
 	return error;
 }

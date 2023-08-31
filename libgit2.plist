@@ -5,13 +5,13 @@
 	<key>OpenSourceProject</key>
 	<string>libgit2</string>
 	<key>OpenSourceVersion</key>
-	<string>0.27.7</string>
+	<string>1.3.0</string>
 	<key>OpenSourceSCM</key>
 	<string>https://github.com/libgit2/libgit2.git</string>
 	<key>OpenSourceSHA1</key>
-	<string>f23dc5b29f1394928a940d7ec447f4bfd53dad1f</string>
+	<string>b7bad55e4bb0a285b073ba5e02b01d3f522fc95d</string>
 	<key>OpenSourceImportDate</key>
-	<string>2018-02-27</string>
+	<string>2021-09-27</string>
 	<key>OpenSourceLicense</key>
 	<string>GPL</string>
 </dict>

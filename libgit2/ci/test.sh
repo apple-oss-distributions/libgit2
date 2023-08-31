@@ -6,22 +6,25 @@ if [ -n "$SKIP_TESTS" ]; then
 	exit 0
 fi
 
+# Windows doesn't run the NTLM tests properly (yet)
+if [[ "$(uname -s)" == MINGW* ]]; then
+        SKIP_NTLM_TESTS=1
+fi
+
 SOURCE_DIR=${SOURCE_DIR:-$( cd "$( dirname "${BASH_SOURCE[0]}" )" && dirname $( pwd ) )}
 BUILD_DIR=$(pwd)
 TMPDIR=${TMPDIR:-/tmp}
 USER=${USER:-$(whoami)}
 
 SUCCESS=1
-
-VALGRIND="valgrind --leak-check=full --show-reachable=yes --error-exitcode=125 --num-callers=50 --suppressions=\"$SOURCE_DIR/libgit2_clar.supp\""
-LEAKS="MallocStackLogging=1 MallocScribble=1 leaks -quiet -atExit -- nohup"
+CONTINUE_ON_FAILURE=0
 
 cleanup() {
 	echo "Cleaning up..."
 
-	if [ ! -z "$GITDAEMON_DIR" -a -f "${GITDAEMON_DIR}/pid" ]; then
+	if [ ! -z "$GITDAEMON_PID" ]; then
 		echo "Stopping git daemon..."
-		kill $(cat "${GITDAEMON_DIR}/pid")
+		kill $GITDAEMON_PID
 	fi
 
 	if [ ! -z "$SSHD_DIR" -a -f "${SSHD_DIR}/pid" ]; then
@@ -32,29 +35,42 @@ cleanup() {
 	echo "Done."
 }
 
-failure() {
-	echo "Test exited with code: $1"
-	SUCCESS=0
-}
-
-# Ask ctest what it would run if we were to invoke it directly.  This lets
-# us manage the test configuration in a single place (tests/CMakeLists.txt)
-# instead of running clar here as well.  But it allows us to wrap our test
-# harness with a leak checker like valgrind.  Append the option to write
-# JUnit-style XML files.
 run_test() {
-	TEST_CMD=$(ctest -N -V -R "^${1}$" | sed -n 's/^[0-9]*: Test command: //p')
-	TEST_CMD="${TEST_CMD} -r${BUILD_DIR}/results_${1}.xml"
-
-	if [ "$LEAK_CHECK" = "valgrind" ]; then
-		RUNNER="$VALGRIND $TEST_CMD"
-	elif [ "$LEAK_CHECK" = "leaks" ]; then
-		RUNNER="$LEAKS $TEST_CMD"
+	if [[ "$GITTEST_FLAKY_RETRY" > 0 ]]; then
+		ATTEMPTS_REMAIN=$GITTEST_FLAKY_RETRY
 	else
-		RUNNER="$TEST_CMD"
+		ATTEMPTS_REMAIN=1
 	fi
 
-	eval $RUNNER || failure
+	FAILED=0
+	while [[ "$ATTEMPTS_REMAIN" > 0 ]]; do
+		if [ "$FAILED" -eq 1 ]; then
+			echo ""
+			echo "Re-running flaky ${1} tests..."
+			echo ""
+		fi
+
+		RETURN_CODE=0
+
+		CLAR_SUMMARY="${BUILD_DIR}/results_${1}.xml" ctest -V -R "^${1}$" || RETURN_CODE=$? && true
+
+		if [ "$RETURN_CODE" -eq 0 ]; then
+			FAILED=0
+			break
+		fi
+
+		echo "Test exited with code: $RETURN_CODE"
+		ATTEMPTS_REMAIN="$(($ATTEMPTS_REMAIN-1))"
+		FAILED=1
+	done
+
+	if [ "$FAILED" -ne 0 ]; then
+		if [ "$CONTINUE_ON_FAILURE" -ne 1 ]; then
+			exit 1
+		fi
+
+		SUCCESS=0
+	fi
 }
 
 # Configure the test environment; run them early so that we're certain
@@ -68,13 +84,31 @@ if [ -z "$SKIP_GITDAEMON_TESTS" ]; then
 	echo "Starting git daemon..."
 	GITDAEMON_DIR=`mktemp -d ${TMPDIR}/gitdaemon.XXXXXXXX`
 	git init --bare "${GITDAEMON_DIR}/test.git"
-	git daemon --listen=localhost --export-all --enable=receive-pack --pid-file="${GITDAEMON_DIR}/pid" --base-path="${GITDAEMON_DIR}" "${GITDAEMON_DIR}" 2>/dev/null &
+	git daemon --listen=localhost --export-all --enable=receive-pack --base-path="${GITDAEMON_DIR}" "${GITDAEMON_DIR}" 2>/dev/null &
+	GITDAEMON_PID=$!
+	disown $GITDAEMON_PID
 fi
 
 if [ -z "$SKIP_PROXY_TESTS" ]; then
-	echo "Starting HTTP proxy..."
-	curl -L https://github.com/ethomson/poxyproxy/releases/download/v0.1.0/poxyproxy-0.1.0.jar >poxyproxy.jar
-	java -jar poxyproxy.jar -d --port 8080 --credentials foo:bar >/dev/null 2>&1 &
+	curl --location --silent --show-error https://github.com/ethomson/poxyproxy/releases/download/v0.7.0/poxyproxy-0.7.0.jar >poxyproxy.jar
+
+	echo ""
+	echo "Starting HTTP proxy (Basic)..."
+	java -jar poxyproxy.jar --address 127.0.0.1 --port 8080 --credentials foo:bar --auth-type basic --quiet &
+
+	echo ""
+	echo "Starting HTTP proxy (NTLM)..."
+	java -jar poxyproxy.jar --address 127.0.0.1 --port 8090 --credentials foo:bar --auth-type ntlm --quiet &
+fi
+
+if [ -z "$SKIP_NTLM_TESTS" ]; then
+	curl --location --silent --show-error https://github.com/ethomson/poxygit/releases/download/v0.4.0/poxygit-0.4.0.jar >poxygit.jar
+
+	echo ""
+	echo "Starting HTTP server..."
+	NTLM_DIR=`mktemp -d ${TMPDIR}/ntlm.XXXXXXXX`
+	git init --bare "${NTLM_DIR}/test.git"
+	java -jar poxygit.jar --address 127.0.0.1 --port 9000 --credentials foo:baz --quiet "${NTLM_DIR}" &
 fi
 
 if [ -z "$SKIP_SSH_TESTS" ]; then
@@ -130,17 +164,41 @@ if [ -z "$SKIP_OFFLINE_TESTS" ]; then
 	run_test offline
 fi
 
+if [ -n "$RUN_INVASIVE_TESTS" ]; then
+	echo ""
+	echo "Running invasive tests"
+	echo ""
+
+	export GITTEST_INVASIVE_FS_SIZE=1
+	export GITTEST_INVASIVE_MEMORY=1
+	export GITTEST_INVASIVE_SPEED=1
+	run_test invasive
+	unset GITTEST_INVASIVE_FS_SIZE
+	unset GITTEST_INVASIVE_MEMORY
+	unset GITTEST_INVASIVE_SPEED
+fi
+
 if [ -z "$SKIP_ONLINE_TESTS" ]; then
-	# Run the various online tests.  The "online" test suite only includes the
-	# default online tests that do not require additional configuration.  The
-	# "proxy" and "ssh" test suites require further setup.
+	# Run the online tests.  The "online" test suite only includes the
+	# default online tests that do not require additional configuration.
+	# The "proxy" and "ssh" test suites require further setup.
 
 	echo ""
 	echo "##############################################################################"
 	echo "## Running (online) tests"
 	echo "##############################################################################"
 
+	export GITTEST_FLAKY_RETRY=5
 	run_test online
+	unset GITTEST_FLAKY_RETRY
+
+	# Run the online tests that immutably change global state separately
+	# to avoid polluting the test environment.
+	echo ""
+	echo "##############################################################################"
+	echo "## Running (online_customcert) tests"
+	echo "##############################################################################"
+	run_test online_customcert
 fi
 
 if [ -z "$SKIP_GITDAEMON_TESTS" ]; then
@@ -155,16 +213,89 @@ fi
 
 if [ -z "$SKIP_PROXY_TESTS" ]; then
 	echo ""
-	echo "Running proxy tests"
+	echo "Running proxy tests (Basic authentication)"
 	echo ""
 
-	export GITTEST_REMOTE_PROXY_URL="localhost:8080"
+	export GITTEST_REMOTE_PROXY_HOST="localhost:8080"
 	export GITTEST_REMOTE_PROXY_USER="foo"
 	export GITTEST_REMOTE_PROXY_PASS="bar"
 	run_test proxy
-	unset GITTEST_REMOTE_PROXY_URL
+	unset GITTEST_REMOTE_PROXY_HOST
 	unset GITTEST_REMOTE_PROXY_USER
 	unset GITTEST_REMOTE_PROXY_PASS
+
+	echo ""
+	echo "Running proxy tests (NTLM authentication)"
+	echo ""
+
+	export GITTEST_REMOTE_PROXY_HOST="localhost:8090"
+	export GITTEST_REMOTE_PROXY_USER="foo"
+	export GITTEST_REMOTE_PROXY_PASS="bar"
+	export GITTEST_FLAKY_RETRY=5
+	run_test proxy
+	unset GITTEST_FLAKY_RETRY
+	unset GITTEST_REMOTE_PROXY_HOST
+	unset GITTEST_REMOTE_PROXY_USER
+	unset GITTEST_REMOTE_PROXY_PASS
+fi
+
+if [ -z "$SKIP_NTLM_TESTS" ]; then
+	echo ""
+	echo "Running NTLM tests (IIS emulation)"
+	echo ""
+
+	export GITTEST_REMOTE_URL="http://localhost:9000/ntlm/test.git"
+	export GITTEST_REMOTE_USER="foo"
+	export GITTEST_REMOTE_PASS="baz"
+	run_test auth_clone_and_push
+	unset GITTEST_REMOTE_URL
+	unset GITTEST_REMOTE_USER
+	unset GITTEST_REMOTE_PASS
+
+	echo ""
+	echo "Running NTLM tests (Apache emulation)"
+	echo ""
+
+	export GITTEST_REMOTE_URL="http://localhost:9000/broken-ntlm/test.git"
+	export GITTEST_REMOTE_USER="foo"
+	export GITTEST_REMOTE_PASS="baz"
+	run_test auth_clone_and_push
+	unset GITTEST_REMOTE_URL
+	unset GITTEST_REMOTE_USER
+	unset GITTEST_REMOTE_PASS
+fi
+
+if [ -z "$SKIP_NEGOTIATE_TESTS" -a -n "$GITTEST_NEGOTIATE_PASSWORD" ]; then
+	echo ""
+	echo "Running SPNEGO tests"
+	echo ""
+
+	if [ "$(uname -s)" = "Darwin" ]; then
+		KINIT_FLAGS="--password-file=STDIN"
+	fi
+
+	echo $GITTEST_NEGOTIATE_PASSWORD | kinit $KINIT_FLAGS test@LIBGIT2.ORG
+	klist -5f
+
+	export GITTEST_REMOTE_URL="https://test.libgit2.org/kerberos/empty.git"
+	export GITTEST_REMOTE_DEFAULT="true"
+	run_test auth_clone
+	unset GITTEST_REMOTE_URL
+	unset GITTEST_REMOTE_DEFAULT
+
+	echo ""
+	echo "Running SPNEGO tests (expect/continue)"
+	echo ""
+
+	export GITTEST_REMOTE_URL="https://test.libgit2.org/kerberos/empty.git"
+	export GITTEST_REMOTE_DEFAULT="true"
+	export GITTEST_REMOTE_EXPECTCONTINUE="true"
+	run_test auth_clone
+	unset GITTEST_REMOTE_URL
+	unset GITTEST_REMOTE_DEFAULT
+	unset GITTEST_REMOTE_EXPECTCONTINUE
+
+	kdestroy -A
 fi
 
 if [ -z "$SKIP_SSH_TESTS" ]; then
@@ -187,9 +318,18 @@ if [ -z "$SKIP_SSH_TESTS" ]; then
 	unset GITTEST_REMOTE_SSH_FINGERPRINT
 fi
 
+if [ -z "$SKIP_FUZZERS" ]; then
+	echo ""
+	echo "##############################################################################"
+	echo "## Running fuzzers"
+	echo "##############################################################################"
+
+	ctest -V -R 'fuzzer'
+fi
+
 cleanup
 
-if [ "$SUCCESS" -ne "1" ]; then
+if [ "$SUCCESS" -ne 1 ]; then
 	echo "Some tests failed."
 	exit 1
 fi

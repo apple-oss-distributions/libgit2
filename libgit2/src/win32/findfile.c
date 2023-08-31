@@ -39,7 +39,7 @@ static int win32_path_to_8(git_buf *dest, const wchar_t *src)
 	git_win32_utf8_path utf8_path;
 
 	if (git_win32_path_to_utf8(utf8_path, src) < 0) {
-		giterr_set(GITERR_OS, "unable to convert path to UTF-8");
+		git_error_set(GIT_ERROR_OS, "unable to convert path to UTF-8");
 		return -1;
 	}
 
@@ -49,11 +49,13 @@ static int win32_path_to_8(git_buf *dest, const wchar_t *src)
 	return git_buf_sets(dest, utf8_path);
 }
 
-static wchar_t* win32_walkpath(wchar_t *path, wchar_t *buf, size_t buflen)
+static wchar_t *win32_walkpath(wchar_t *path, wchar_t *buf, size_t buflen)
 {
 	wchar_t term, *base = path;
 
-	assert(path && buf && buflen);
+	GIT_ASSERT_ARG_WITH_RETVAL(path, NULL);
+	GIT_ASSERT_ARG_WITH_RETVAL(buf, NULL);
+	GIT_ASSERT_ARG_WITH_RETVAL(buflen, NULL);
 
 	term = (*path == L'"') ? *path++ : L';';
 
@@ -109,7 +111,7 @@ static int win32_find_git_in_registry(
 	HKEY hKey;
 	int error = GIT_ENOTFOUND;
 
-	assert(buf);
+	GIT_ASSERT_ARG(buf);
 
 	if (!RegOpenKeyExW(hive, key, 0, KEY_READ, &hKey)) {
 		DWORD dwType, cbData;
@@ -158,7 +160,7 @@ static int win32_find_existing_dirs(
 		}
 	}
 
-	git_buf_free(&buf);
+	git_buf_dispose(&buf);
 
 	return (git_buf_oom(out) ? -1 : 0);
 }
@@ -185,7 +187,7 @@ int git_win32__find_system_dirs(git_buf *out, const wchar_t *subdir)
 			&buf, HKEY_LOCAL_MACHINE, REG_MSYSGIT_INSTALL, subdir) && buf.size)
 		git_buf_join(out, GIT_PATH_LIST_SEPARATOR, out->ptr, buf.ptr);
 
-	git_buf_free(&buf);
+	git_buf_dispose(&buf);
 
 	return (git_buf_oom(out) ? -1 : 0);
 }

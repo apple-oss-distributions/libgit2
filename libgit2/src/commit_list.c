@@ -10,6 +10,25 @@
 #include "revwalk.h"
 #include "pool.h"
 #include "odb.h"
+#include "commit.h"
+
+int git_commit_list_generation_cmp(const void *a, const void *b)
+{
+	uint32_t generation_a = ((git_commit_list_node *) a)->generation;
+	uint32_t generation_b = ((git_commit_list_node *) b)->generation;
+
+	if (!generation_a || !generation_b) {
+		/* Fall back to comparing by timestamps if at least one commit lacks a generation. */
+		return git_commit_list_time_cmp(a, b);
+	}
+
+	if (generation_a < generation_b)
+		return 1;
+	if (generation_a > generation_b)
+		return -1;
+
+	return 0;
+}
 
 int git_commit_list_time_cmp(const void *a, const void *b)
 {
@@ -55,25 +74,18 @@ git_commit_list_node *git_commit_list_alloc_node(git_revwalk *walk)
 	return (git_commit_list_node *)git_pool_mallocz(&walk->commit_pool, 1);
 }
 
-static int commit_error(git_commit_list_node *commit, const char *msg)
-{
-	char commit_oid[GIT_OID_HEXSZ + 1];
-	git_oid_fmt(commit_oid, &commit->oid);
-	commit_oid[GIT_OID_HEXSZ] = '\0';
-
-	giterr_set(GITERR_ODB, "failed to parse commit %s - %s", commit_oid, msg);
-
-	return -1;
-}
-
 static git_commit_list_node **alloc_parents(
 	git_revwalk *walk, git_commit_list_node *commit, size_t n_parents)
 {
+	size_t bytes;
+
 	if (n_parents <= PARENTS_PER_COMMIT)
 		return (git_commit_list_node **)((char *)commit + sizeof(git_commit_list_node));
 
-	return (git_commit_list_node **)git_pool_malloc(
-		&walk->commit_pool, (uint32_t)(n_parents * sizeof(git_commit_list_node *)));
+	if (git__multiply_sizet_overflow(&bytes, n_parents, sizeof(git_commit_list_node *)))
+		return NULL;
+
+	return (git_commit_list_node **)git_pool_malloc(&walk->commit_pool, bytes);
 }
 
 
@@ -107,99 +119,89 @@ git_commit_list_node *git_commit_list_pop(git_commit_list **stack)
 
 static int commit_quick_parse(
 	git_revwalk *walk,
-	git_commit_list_node *commit,
-	const uint8_t *buffer,
-	size_t buffer_len)
+	git_commit_list_node *node,
+	git_odb_object *obj)
 {
-	const size_t parent_len = strlen("parent ") + GIT_OID_HEXSZ + 1;
-	const uint8_t *buffer_end = buffer + buffer_len;
-	const uint8_t *parents_start, *committer_start;
-	int i, parents = 0;
-	int64_t commit_time;
+	git_oid *parent_oid;
+	git_commit *commit;
+	int error;
+	size_t i;
 
-	buffer += strlen("tree ") + GIT_OID_HEXSZ + 1;
+	commit = git__calloc(1, sizeof(*commit));
+	GIT_ERROR_CHECK_ALLOC(commit);
+	commit->object.repo = walk->repo;
 
-	parents_start = buffer;
-	while (buffer + parent_len < buffer_end && memcmp(buffer, "parent ", strlen("parent ")) == 0) {
-		parents++;
-		buffer += parent_len;
+	if ((error = git_commit__parse_ext(commit, obj, GIT_COMMIT_PARSE_QUICK)) < 0) {
+		git__free(commit);
+		return error;
 	}
 
-	commit->parents = alloc_parents(walk, commit, parents);
-	GITERR_CHECK_ALLOC(commit->parents);
-
-	buffer = parents_start;
-	for (i = 0; i < parents; ++i) {
-		git_oid oid;
-
-		if (git_oid_fromstr(&oid, (const char *)buffer + strlen("parent ")) < 0)
-			return -1;
-
-		commit->parents[i] = git_revwalk__commit_lookup(walk, &oid);
-		if (commit->parents[i] == NULL)
-			return -1;
-
-		buffer += parent_len;
+	if (!git__is_uint16(git_array_size(commit->parent_ids))) {
+		git__free(commit);
+		git_error_set(GIT_ERROR_INVALID, "commit has more than 2^16 parents");
+		return -1;
 	}
 
-	commit->out_degree = (unsigned short)parents;
+	node->generation = 0;
+	node->time = commit->committer->when.time;
+	node->out_degree = (uint16_t) git_array_size(commit->parent_ids);
+	node->parents = alloc_parents(walk, node, node->out_degree);
+	GIT_ERROR_CHECK_ALLOC(node->parents);
 
-	if ((committer_start = buffer = memchr(buffer, '\n', buffer_end - buffer)) == NULL)
-		return commit_error(commit, "object is corrupted");
-
-	buffer++;
-
-	if ((buffer = memchr(buffer, '\n', buffer_end - buffer)) == NULL)
-		return commit_error(commit, "object is corrupted");
-
-	/* Skip trailing spaces */
-	while (buffer > committer_start && git__isspace(*buffer))
-		buffer--;
-
-	/* Seek for the beginning of the pack of digits */
-	while (buffer > committer_start && git__isdigit(*buffer))
-		buffer--;
-
-	/* Skip potential timezone offset */
-	if ((buffer > committer_start) && (*buffer == '+' || *buffer == '-')) {
-		buffer--;
-
-		while (buffer > committer_start && git__isspace(*buffer))
-			buffer--;
-
-		while (buffer > committer_start && git__isdigit(*buffer))
-			buffer--;
+	git_array_foreach(commit->parent_ids, i, parent_oid) {
+		node->parents[i] = git_revwalk__commit_lookup(walk, parent_oid);
 	}
 
-	if ((buffer == committer_start) ||
-	    (git__strntol64(&commit_time, (char *)(buffer + 1),
-			    buffer_end - buffer + 1, NULL, 10) < 0))
-		return commit_error(commit, "cannot parse commit time");
+	git_commit__free(commit);
 
-	commit->time = commit_time;
-	commit->parsed = 1;
+	node->parsed = 1;
+
 	return 0;
 }
 
 int git_commit_list_parse(git_revwalk *walk, git_commit_list_node *commit)
 {
 	git_odb_object *obj;
+	git_commit_graph_file *cgraph_file = NULL;
 	int error;
 
 	if (commit->parsed)
 		return 0;
 
+	/* Let's try to use the commit graph first. */
+	git_odb__get_commit_graph_file(&cgraph_file, walk->odb);
+	if (cgraph_file) {
+		git_commit_graph_entry e;
+
+		error = git_commit_graph_entry_find(&e, cgraph_file, &commit->oid, GIT_OID_RAWSZ);
+		if (error == 0 && git__is_uint16(e.parent_count)) {
+			size_t i;
+			commit->generation = (uint32_t)e.generation;
+			commit->time = e.commit_time;
+			commit->out_degree = (uint16_t)e.parent_count;
+			commit->parents = alloc_parents(walk, commit, commit->out_degree);
+			GIT_ERROR_CHECK_ALLOC(commit->parents);
+
+			for (i = 0; i < commit->out_degree; ++i) {
+				git_commit_graph_entry parent;
+				error = git_commit_graph_entry_parent(&parent, cgraph_file, &e, i);
+				if (error < 0)
+					return error;
+				commit->parents[i] = git_revwalk__commit_lookup(walk, &parent.sha1);
+			}
+			commit->parsed = 1;
+			return 0;
+		}
+	}
+
 	if ((error = git_odb_read(&obj, walk->odb, &commit->oid)) < 0)
 		return error;
 
-	if (obj->cached.type != GIT_OBJ_COMMIT) {
-		giterr_set(GITERR_INVALID, "object is no commit object");
+	if (obj->cached.type != GIT_OBJECT_COMMIT) {
+		git_error_set(GIT_ERROR_INVALID, "object is no commit object");
 		error = -1;
 	} else
-		error = commit_quick_parse(
-			walk, commit,
-			(const uint8_t *)git_odb_object_data(obj),
-			git_odb_object_size(obj));
+		error = commit_quick_parse(walk, commit, obj);
 
 	git_odb_object_free(obj);
 	return error;

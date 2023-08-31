@@ -13,12 +13,6 @@
  */
 
 #include "common.h"
-#ifdef _WIN32
-# include <Windows.h>
-# define sleep(a) Sleep(a * 1000)
-#else
-# include <unistd.h>
-#endif
 
 /**
  * This example demonstrates the use of the libgit2 status APIs,
@@ -49,7 +43,7 @@ enum {
 
 #define MAX_PATHSPEC 8
 
-struct opts {
+struct status_opts {
 	git_status_options statusopt;
 	char *repodir;
 	char *pathspec[MAX_PATHSPEC];
@@ -61,19 +55,16 @@ struct opts {
 	int repeat;
 };
 
-static void parse_opts(struct opts *o, int argc, char *argv[]);
+static void parse_opts(struct status_opts *o, int argc, char *argv[]);
 static void show_branch(git_repository *repo, int format);
 static void print_long(git_status_list *status);
 static void print_short(git_repository *repo, git_status_list *status);
 static int print_submod(git_submodule *sm, const char *name, void *payload);
 
-int main(int argc, char *argv[])
+int lg2_status(git_repository *repo, int argc, char *argv[])
 {
-	git_repository *repo = NULL;
 	git_status_list *status;
-	struct opts o = { GIT_STATUS_OPTIONS_INIT, "." };
-
-	git_libgit2_init();
+	struct status_opts o = { GIT_STATUS_OPTIONS_INIT, "." };
 
 	o.statusopt.show  = GIT_STATUS_SHOW_INDEX_AND_WORKDIR;
 	o.statusopt.flags = GIT_STATUS_OPT_INCLUDE_UNTRACKED |
@@ -81,13 +72,6 @@ int main(int argc, char *argv[])
 		GIT_STATUS_OPT_SORT_CASE_SENSITIVELY;
 
 	parse_opts(&o, argc, argv);
-
-	/**
-	 * Try to open the repository at the given path (or at the current
-	 * directory if none was given).
-	 */
-	check_lg2(git_repository_open_ext(&repo, o.repodir, 0, NULL),
-		  "Could not open repository", o.repodir);
 
 	if (git_repository_is_bare(repo))
 		fatal("Cannot report status on bare repository",
@@ -133,9 +117,6 @@ show_status:
 		sleep(o.repeat);
 		goto show_status;
 	}
-
-	git_repository_free(repo);
-	git_libgit2_shutdown();
 
 	return 0;
 }
@@ -454,7 +435,7 @@ static int print_submod(git_submodule *sm, const char *name, void *payload)
 /**
  * Parse options that git's status command supports.
  */
-static void parse_opts(struct opts *o, int argc, char *argv[])
+static void parse_opts(struct status_opts *o, int argc, char *argv[])
 {
 	struct args_info args = ARGS_INFO_INIT;
 

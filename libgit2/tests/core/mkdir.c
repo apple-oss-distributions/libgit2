@@ -1,5 +1,5 @@
 #include "clar_libgit2.h"
-#include "fileops.h"
+#include "futils.h"
 #include "path.h"
 #include "posix.h"
 
@@ -49,7 +49,7 @@ void test_core_mkdir__absolute(void)
 	cl_git_fail(git_futils_mkdir(path.ptr, 0755, 0));
 	cl_assert(!git_path_isdir(path.ptr));
 
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 }
 
 void test_core_mkdir__basic(void)
@@ -150,10 +150,11 @@ static void cleanup_chmod_root(void *ref)
 	git_futils_rmdir_r("r", NULL, GIT_RMDIR_EMPTY_HIERARCHY);
 }
 
-#define check_mode(X,A) check_mode_at_line((X), (A), __FILE__, __LINE__)
+#define check_mode(X,A) check_mode_at_line((X), (A), __FILE__, __func__, __LINE__)
 
 static void check_mode_at_line(
-	mode_t expected, mode_t actual, const char *file, int line)
+	mode_t expected, mode_t actual,
+	const char *file, const char *func, int line)
 {
 	/* FAT filesystems don't support exec bit, nor group/world bits */
 	if (!cl_is_chmod_supported()) {
@@ -162,7 +163,7 @@ static void check_mode_at_line(
 	}
 
 	clar__assert_equal(
-		file, line, "expected_mode != actual_mode", 1,
+		file, func, line, "expected_mode != actual_mode", 1,
 		"%07o", (int)expected, (int)(actual & 0777));
 }
 
@@ -256,7 +257,7 @@ void test_core_mkdir__keeps_parent_symlinks(void)
 	cl_assert(git_path_isdir("d2/other/dir"));
 	cl_assert(git_path_isdir("d0/other/dir"));
 
-	git_buf_free(&path);
+	git_buf_dispose(&path);
 #endif
 }
 

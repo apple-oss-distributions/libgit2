@@ -39,7 +39,7 @@ void test_diff_blob__initialize(void)
 
 	g_repo = cl_git_sandbox_init("attr");
 
-	cl_git_pass(git_diff_init_options(&opts, GIT_DIFF_OPTIONS_VERSION));
+	cl_git_pass(git_diff_options_init(&opts, GIT_DIFF_OPTIONS_VERSION));
 	opts.context_lines = 1;
 
 	memset(&expected, 0, sizeof(expected));
@@ -101,7 +101,7 @@ void test_diff_blob__patch_with_freed_blobs(void)
 	cl_assert_equal_s(buf.ptr, BLOB_DIFF);
 
 	git_patch_free(p);
-	git_buf_free(&buf);
+	git_buf_dispose(&buf);
 }
 
 void test_diff_blob__can_compare_text_blobs(void)
@@ -315,7 +315,7 @@ void test_diff_blob__can_compare_against_null_blobs_with_patch(void)
 	cl_assert_equal_i(GIT_DELTA_DELETED, delta->status);
 	cl_assert_equal_oid(git_blob_id(d), &delta->old_file.id);
 	cl_assert_equal_sz(git_blob_rawsize(d), delta->old_file.size);
-	cl_assert(git_oid_iszero(&delta->new_file.id));
+	cl_assert(git_oid_is_zero(&delta->new_file.id));
 	cl_assert_equal_sz(0, delta->new_file.size);
 
 	cl_assert_equal_i(1, (int)git_patch_num_hunks(p));
@@ -338,7 +338,7 @@ void test_diff_blob__can_compare_against_null_blobs_with_patch(void)
 	delta = git_patch_get_delta(p);
 	cl_assert(delta != NULL);
 	cl_assert_equal_i(GIT_DELTA_ADDED, delta->status);
-	cl_assert(git_oid_iszero(&delta->old_file.id));
+	cl_assert(git_oid_is_zero(&delta->old_file.id));
 	cl_assert_equal_sz(0, delta->old_file.size);
 	cl_assert_equal_oid(git_blob_id(d), &delta->new_file.id);
 	cl_assert_equal_sz(git_blob_rawsize(d), delta->new_file.size);
@@ -445,9 +445,9 @@ void test_diff_blob__can_compare_identical_blobs_with_patch(void)
 	cl_assert(delta != NULL);
 	cl_assert_equal_i(GIT_DELTA_UNMODIFIED, delta->status);
 	cl_assert_equal_sz(0, delta->old_file.size);
-	cl_assert(git_oid_iszero(&delta->old_file.id));
+	cl_assert(git_oid_is_zero(&delta->old_file.id));
 	cl_assert_equal_sz(0, delta->new_file.size);
-	cl_assert(git_oid_iszero(&delta->new_file.id));
+	cl_assert(git_oid_is_zero(&delta->new_file.id));
 
 	cl_assert_equal_i(0, (int)git_patch_num_hunks(p));
 	git_patch_free(p);
@@ -520,19 +520,19 @@ void test_diff_blob__can_compare_a_binary_blob_and_a_text_blob(void)
  * +++ b/a0f7217
  * @@ -1,6 +1,6 @@
  *  Here is some stuff at the start
- * 
+ *
  * -This should go in one hunk
  * +This should go in one hunk (first)
- * 
+ *
  *  Some additional lines
- * 
+ *
  * @@ -8,7 +8,7 @@ Down here below the other lines
- * 
+ *
  *  With even more at the end
- * 
+ *
  * -Followed by a second hunk of stuff
  * +Followed by a second hunk of stuff (second)
- * 
+ *
  *  That happens down here
  */
 void test_diff_blob__comparing_two_text_blobs_honors_interhunkcontext(void)
@@ -582,8 +582,8 @@ void test_diff_blob__checks_options_version_too_low(void)
 	cl_git_fail(git_diff_blobs(
 		d, NULL, alien, NULL, &opts,
 		diff_file_cb, diff_binary_cb, diff_hunk_cb, diff_line_cb, &expected));
-	err = giterr_last();
-	cl_assert_equal_i(GITERR_INVALID, err->klass);
+	err = git_error_last();
+	cl_assert_equal_i(GIT_ERROR_INVALID, err->klass);
 }
 
 void test_diff_blob__checks_options_version_too_high(void)
@@ -594,8 +594,8 @@ void test_diff_blob__checks_options_version_too_high(void)
 	cl_git_fail(git_diff_blobs(
 		d, NULL, alien, NULL, &opts,
 		diff_file_cb, diff_binary_cb, diff_hunk_cb, diff_line_cb, &expected));
-	err = giterr_last();
-	cl_assert_equal_i(GITERR_INVALID, err->klass);
+	err = git_error_last();
+	cl_assert_equal_i(GIT_ERROR_INVALID, err->klass);
 }
 
 void test_diff_blob__can_correctly_detect_a_binary_blob_as_binary(void)
@@ -1016,7 +1016,7 @@ void test_diff_blob__using_path_and_attributes(void)
 	git_buf_clear(&buf);
 	git_patch_free(p);
 
-	git_buf_free(&buf);
+	git_buf_dispose(&buf);
 	git_blob_free(nonbin);
 	git_blob_free(bin);
 }

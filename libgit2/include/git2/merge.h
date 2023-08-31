@@ -57,7 +57,7 @@ typedef struct {
  *        `GIT_MERGE_FILE_INPUT_VERSION` here.
  * @return Zero on success; -1 on failure.
  */
-GIT_EXTERN(int) git_merge_file_init_input(
+GIT_EXTERN(int) git_merge_file_input_init(
 	git_merge_file_input *opts,
 	unsigned int version);
 
@@ -192,7 +192,7 @@ typedef struct {
 	git_merge_file_favor_t favor;
 
 	/** see `git_merge_file_flag_t` above */
-	git_merge_file_flag_t flags;
+	uint32_t flags;
 
 	/** The size of conflict markers (eg, "<<<<<<<").  Default is
 	 * GIT_MERGE_CONFLICT_MARKER_SIZE. */
@@ -203,17 +203,16 @@ typedef struct {
 #define GIT_MERGE_FILE_OPTIONS_INIT {GIT_MERGE_FILE_OPTIONS_VERSION}
 
 /**
- * Initializes a `git_merge_file_options` with default values. Equivalent to
- * creating an instance with GIT_MERGE_FILE_OPTIONS_INIT.
+ * Initialize git_merge_file_options structure
  *
- * @param opts the `git_merge_file_options` instance to initialize.
- * @param version the version of the struct; you should pass
- *        `GIT_MERGE_FILE_OPTIONS_VERSION` here.
+ * Initializes a `git_merge_file_options` with default values. Equivalent to
+ * creating an instance with `GIT_MERGE_FILE_OPTIONS_INIT`.
+ *
+ * @param opts The `git_merge_file_options` struct to initialize.
+ * @param version The struct version; pass `GIT_MERGE_FILE_OPTIONS_VERSION`.
  * @return Zero on success; -1 on failure.
  */
-GIT_EXTERN(int) git_merge_file_init_options(
-	git_merge_file_options *opts,
-	unsigned int version);
+GIT_EXTERN(int) git_merge_file_options_init(git_merge_file_options *opts, unsigned int version);
 
 /**
  * Information about file-level merging
@@ -248,7 +247,7 @@ typedef struct {
 	unsigned int version;
 
 	/** See `git_merge_flag_t` above */
-	git_merge_flag_t flags;
+	uint32_t flags;
 
 	/**
 	 * Similarity to consider a file renamed (default 50).  If
@@ -292,7 +291,7 @@ typedef struct {
 	git_merge_file_favor_t file_favor;
 
 	/** see `git_merge_file_flag_t` above */
-	git_merge_file_flag_t file_flags;
+	uint32_t file_flags;
 } git_merge_options;
 
 #define GIT_MERGE_OPTIONS_VERSION 1
@@ -300,17 +299,16 @@ typedef struct {
 	GIT_MERGE_OPTIONS_VERSION, GIT_MERGE_FIND_RENAMES }
 
 /**
- * Initializes a `git_merge_options` with default values. Equivalent to
- * creating an instance with GIT_MERGE_OPTIONS_INIT.
+ * Initialize git_merge_options structure
  *
- * @param opts the `git_merge_options` instance to initialize.
- * @param version the version of the struct; you should pass
- *        `GIT_MERGE_OPTIONS_VERSION` here.
+ * Initializes a `git_merge_options` with default values. Equivalent to
+ * creating an instance with `GIT_MERGE_OPTIONS_INIT`.
+ *
+ * @param opts The `git_merge_options` struct to initialize.
+ * @param version The struct version; pass `GIT_MERGE_OPTIONS_VERSION`.
  * @return Zero on success; -1 on failure.
  */
-GIT_EXTERN(int) git_merge_init_options(
-	git_merge_options *opts,
-	unsigned int version);
+GIT_EXTERN(int) git_merge_options_init(git_merge_options *opts, unsigned int version);
 
 /**
  * The results of `git_merge_analysis` indicate the merge opportunities.
@@ -383,6 +381,25 @@ GIT_EXTERN(int) git_merge_analysis(
 	git_merge_analysis_t *analysis_out,
 	git_merge_preference_t *preference_out,
 	git_repository *repo,
+	const git_annotated_commit **their_heads,
+	size_t their_heads_len);
+
+/**
+ * Analyzes the given branch(es) and determines the opportunities for
+ * merging them into a reference.
+ *
+ * @param analysis_out analysis enumeration that the result is written into
+ * @param repo the repository to merge
+ * @param our_ref the reference to perform the analysis from
+ * @param their_heads the heads to merge into
+ * @param their_heads_len the number of heads to merge
+ * @return 0 on success or error code
+ */
+GIT_EXTERN(int) git_merge_analysis_for_ref(
+	git_merge_analysis_t *analysis_out,
+	git_merge_preference_t *preference_out,
+	git_repository *repo,
+	git_reference *our_ref,
 	const git_annotated_commit **their_heads,
 	size_t their_heads_len);
 

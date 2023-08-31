@@ -7,7 +7,7 @@
 
 #include "filebuf.h"
 
-#include "fileops.h"
+#include "futils.h"
 
 static const size_t WRITE_BUFFER_SIZE = (4096 * 2);
 
@@ -24,15 +24,15 @@ static int verify_last_error(git_filebuf *file)
 {
 	switch (file->last_error) {
 	case BUFERR_WRITE:
-		giterr_set(GITERR_OS, "failed to write out file");
+		git_error_set(GIT_ERROR_OS, "failed to write out file");
 		return -1;
 
 	case BUFERR_MEM:
-		giterr_set_oom();
+		git_error_set_oom();
 		return -1;
 
 	case BUFERR_ZLIB:
-		giterr_set(GITERR_ZLIB,
+		git_error_set(GIT_ERROR_ZLIB,
 			"Buffer error when writing out ZLib data");
 		return -1;
 
@@ -44,18 +44,14 @@ static int verify_last_error(git_filebuf *file)
 static int lock_file(git_filebuf *file, int flags, mode_t mode)
 {
 	if (git_path_exists(file->path_lock) == true) {
-		if (flags & GIT_FILEBUF_FORCE)
-			p_unlink(file->path_lock);
-		else {
-			giterr_clear(); /* actual OS error code just confuses */
-			giterr_set(GITERR_OS,
-				"failed to lock file '%s' for writing", file->path_lock);
-			return GIT_ELOCKED;
-		}
+		git_error_clear(); /* actual OS error code just confuses */
+		git_error_set(GIT_ERROR_OS,
+			"failed to lock file '%s' for writing", file->path_lock);
+		return GIT_ELOCKED;
 	}
 
 	/* create path to the file buffer is required */
-	if (flags & GIT_FILEBUF_FORCE) {
+	if (flags & GIT_FILEBUF_CREATE_LEADING_DIRS) {
 		/* XXX: Should dirmode here be configurable? Or is 0777 always fine? */
 		file->fd = git_futils_creat_locked_withpath(file->path_lock, 0777, mode);
 	} else {
@@ -75,7 +71,7 @@ static int lock_file(git_filebuf *file, int flags, mode_t mode)
 
 		source = p_open(file->path_original, O_RDONLY);
 		if (source < 0) {
-			giterr_set(GITERR_OS,
+			git_error_set(GIT_ERROR_OS,
 				"failed to open file '%s' for reading",
 				file->path_original);
 			return -1;
@@ -91,10 +87,10 @@ static int lock_file(git_filebuf *file, int flags, mode_t mode)
 		p_close(source);
 
 		if (read_bytes < 0) {
-			giterr_set(GITERR_OS, "failed to read file '%s'", file->path_original);
+			git_error_set(GIT_ERROR_OS, "failed to read file '%s'", file->path_original);
 			return -1;
 		} else if (error < 0) {
-			giterr_set(GITERR_OS, "failed to write file '%s'", file->path_lock);
+			git_error_set(GIT_ERROR_OS, "failed to write file '%s'", file->path_lock);
 			return -1;
 		}
 	}
@@ -188,7 +184,7 @@ static int write_deflate(git_filebuf *file, void *source, size_t len)
 
 		} while (zs->avail_out == 0);
 
-		assert(zs->avail_in == 0);
+		GIT_ASSERT(zs->avail_in == 0);
 
 		if (file->compute_digest)
 			git_hash_update(&file->digest, source, len);
@@ -218,7 +214,7 @@ static int resolve_symlink(git_buf *out, const char *path)
 		}
 
 		if (error < 0) {
-			giterr_set(GITERR_OS, "failed to stat '%s'", curpath.ptr);
+			git_error_set(GIT_ERROR_OS, "failed to stat '%s'", curpath.ptr);
 			error = -1;
 			goto cleanup;
 		}
@@ -230,13 +226,13 @@ static int resolve_symlink(git_buf *out, const char *path)
 
 		ret = p_readlink(curpath.ptr, target.ptr, GIT_PATH_MAX);
 		if (ret < 0) {
-			giterr_set(GITERR_OS, "failed to read symlink '%s'", curpath.ptr);
+			git_error_set(GIT_ERROR_OS, "failed to read symlink '%s'", curpath.ptr);
 			error = -1;
 			goto cleanup;
 		}
 
 		if (ret == GIT_PATH_MAX) {
-			giterr_set(GITERR_INVALID, "symlink target too long");
+			git_error_set(GIT_ERROR_INVALID, "symlink target too long");
 			error = -1;
 			goto cleanup;
 		}
@@ -256,19 +252,19 @@ static int resolve_symlink(git_buf *out, const char *path)
 				goto cleanup;
 
 			git_buf_swap(&curpath, &dir);
-			git_buf_free(&dir);
+			git_buf_dispose(&dir);
 
 			if ((error = git_path_apply_relative(&curpath, target.ptr)) < 0)
 				goto cleanup;
 		}
 	}
 
-	giterr_set(GITERR_INVALID, "maximum symlink depth reached");
+	git_error_set(GIT_ERROR_INVALID, "maximum symlink depth reached");
 	error = -1;
 
 cleanup:
-	git_buf_free(&curpath);
-	git_buf_free(&target);
+	git_buf_dispose(&curpath);
+	git_buf_dispose(&target);
 	return error;
 }
 
@@ -282,10 +278,9 @@ int git_filebuf_open_withsize(git_filebuf *file, const char *path, int flags, mo
 	int compression, error = -1;
 	size_t path_len, alloc_len;
 
-	/* opening an already open buffer is a programming error;
-	 * assert that this never happens instead of returning
-	 * an error code */
-	assert(file && path && file->buffer == NULL);
+	GIT_ASSERT_ARG(file);
+	GIT_ASSERT_ARG(path);
+	GIT_ASSERT(file->buffer == NULL);
 
 	memset(file, 0x0, sizeof(git_filebuf));
 
@@ -303,7 +298,7 @@ int git_filebuf_open_withsize(git_filebuf *file, const char *path, int flags, mo
 	/* Allocate the main cache buffer */
 	if (!file->do_not_buffer) {
 		file->buffer = git__malloc(file->buf_size);
-		GITERR_CHECK_ALLOC(file->buffer);
+		GIT_ERROR_CHECK_ALLOC(file->buffer);
 	}
 
 	/* If we are hashing on-write, allocate a new hash context */
@@ -320,13 +315,13 @@ int git_filebuf_open_withsize(git_filebuf *file, const char *path, int flags, mo
 	if (compression != 0) {
 		/* Initialize the ZLib stream */
 		if (deflateInit(&file->zs, compression) != Z_OK) {
-			giterr_set(GITERR_ZLIB, "failed to initialize zlib");
+			git_error_set(GIT_ERROR_ZLIB, "failed to initialize zlib");
 			goto cleanup;
 		}
 
 		/* Allocate the Zlib cache buffer */
 		file->z_buf = git__malloc(file->buf_size);
-		GITERR_CHECK_ALLOC(file->z_buf);
+		GIT_ERROR_CHECK_ALLOC(file->z_buf);
 
 		/* Never flush */
 		file->flush_mode = Z_NO_FLUSH;
@@ -343,7 +338,7 @@ int git_filebuf_open_withsize(git_filebuf *file, const char *path, int flags, mo
 		file->fd = git_futils_mktmp(&tmp_path, path, mode);
 
 		if (file->fd < 0) {
-			git_buf_free(&tmp_path);
+			git_buf_dispose(&tmp_path);
 			goto cleanup;
 		}
 		file->fd_is_open = true;
@@ -352,7 +347,7 @@ int git_filebuf_open_withsize(git_filebuf *file, const char *path, int flags, mo
 		/* No original path */
 		file->path_original = NULL;
 		file->path_lock = git_buf_detach(&tmp_path);
-		GITERR_CHECK_ALLOC(file->path_lock);
+		GIT_ERROR_CHECK_ALLOC(file->path_lock);
 	} else {
 		git_buf resolved_path = GIT_BUF_INIT;
 
@@ -364,15 +359,15 @@ int git_filebuf_open_withsize(git_filebuf *file, const char *path, int flags, mo
 		file->path_original = git_buf_detach(&resolved_path);
 
 		/* create the locking path by appending ".lock" to the original */
-		GITERR_CHECK_ALLOC_ADD(&alloc_len, path_len, GIT_FILELOCK_EXTLENGTH);
+		GIT_ERROR_CHECK_ALLOC_ADD(&alloc_len, path_len, GIT_FILELOCK_EXTLENGTH);
 		file->path_lock = git__malloc(alloc_len);
-		GITERR_CHECK_ALLOC(file->path_lock);
+		GIT_ERROR_CHECK_ALLOC(file->path_lock);
 
 		memcpy(file->path_lock, file->path_original, path_len);
 		memcpy(file->path_lock + path_len, GIT_FILELOCK_EXTENSION, GIT_FILELOCK_EXTLENGTH);
 
 		if (git_path_isdir(file->path_original)) {
-			giterr_set(GITERR_FILESYSTEM, "path '%s' is a directory", file->path_original);
+			git_error_set(GIT_ERROR_FILESYSTEM, "path '%s' is a directory", file->path_original);
 			error = GIT_EDIRECTORY;
 			goto cleanup;
 		}
@@ -393,7 +388,9 @@ cleanup:
 
 int git_filebuf_hash(git_oid *oid, git_filebuf *file)
 {
-	assert(oid && file && file->compute_digest);
+	GIT_ASSERT_ARG(oid);
+	GIT_ASSERT_ARG(file);
+	GIT_ASSERT_ARG(file->compute_digest);
 
 	flush_buffer(file);
 
@@ -411,7 +408,7 @@ int git_filebuf_commit_at(git_filebuf *file, const char *path)
 {
 	git__free(file->path_original);
 	file->path_original = git__strdup(path);
-	GITERR_CHECK_ALLOC(file->path_original);
+	GIT_ERROR_CHECK_ALLOC(file->path_original);
 
 	return git_filebuf_commit(file);
 }
@@ -419,7 +416,8 @@ int git_filebuf_commit_at(git_filebuf *file, const char *path)
 int git_filebuf_commit(git_filebuf *file)
 {
 	/* temporary files cannot be committed */
-	assert(file && file->path_original);
+	GIT_ASSERT_ARG(file);
+	GIT_ASSERT(file->path_original);
 
 	file->flush_mode = Z_FINISH;
 	flush_buffer(file);
@@ -430,19 +428,19 @@ int git_filebuf_commit(git_filebuf *file)
 	file->fd_is_open = false;
 
 	if (file->do_fsync && p_fsync(file->fd) < 0) {
-		giterr_set(GITERR_OS, "failed to fsync '%s'", file->path_lock);
+		git_error_set(GIT_ERROR_OS, "failed to fsync '%s'", file->path_lock);
 		goto on_error;
 	}
 
 	if (p_close(file->fd) < 0) {
-		giterr_set(GITERR_OS, "failed to close file at '%s'", file->path_lock);
+		git_error_set(GIT_ERROR_OS, "failed to close file at '%s'", file->path_lock);
 		goto on_error;
 	}
 
 	file->fd = -1;
 
 	if (p_rename(file->path_lock, file->path_original) < 0) {
-		giterr_set(GITERR_OS, "failed to rename lockfile to '%s'", file->path_original);
+		git_error_set(GIT_ERROR_OS, "failed to rename lockfile to '%s'", file->path_original);
 		goto on_error;
 	}
 
@@ -583,7 +581,7 @@ int git_filebuf_stats(time_t *mtime, size_t *size, git_filebuf *file)
 		res = p_stat(file->path_original, &st);
 
 	if (res < 0) {
-		giterr_set(GITERR_OS, "could not get stat info for '%s'",
+		git_error_set(GIT_ERROR_OS, "could not get stat info for '%s'",
 			file->path_original);
 		return res;
 	}

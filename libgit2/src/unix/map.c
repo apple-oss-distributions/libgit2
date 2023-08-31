@@ -20,7 +20,7 @@ int git__page_size(size_t *page_size)
 {
 	long sc_page_size = sysconf(_SC_PAGE_SIZE);
 	if (sc_page_size < 0) {
-		giterr_set(GITERR_OS, "can't determine system page size");
+		git_error_set(GIT_ERROR_OS, "can't determine system page size");
 		return -1;
 	}
 	*page_size = (size_t) sc_page_size;
@@ -32,7 +32,7 @@ int git__mmap_alignment(size_t *alignment)
   return git__page_size(alignment);
 }
 
-int p_mmap(git_map *out, size_t len, int prot, int flags, int fd, git_off_t offset)
+int p_mmap(git_map *out, size_t len, int prot, int flags, int fd, off64_t offset)
 {
 	int mprot = PROT_READ;
 	int mflag = 0;
@@ -55,7 +55,7 @@ int p_mmap(git_map *out, size_t len, int prot, int flags, int fd, git_off_t offs
 	out->data = mmap(NULL, len, mprot, mflag, fd, offset);
 
 	if (!out->data || out->data == MAP_FAILED) {
-		giterr_set(GITERR_OS, "failed to mmap. Could not write data");
+		git_error_set(GIT_ERROR_OS, "failed to mmap. Could not write data");
 		return -1;
 	}
 
@@ -66,8 +66,10 @@ int p_mmap(git_map *out, size_t len, int prot, int flags, int fd, git_off_t offs
 
 int p_munmap(git_map *map)
 {
-	assert(map != NULL);
+	GIT_ASSERT_ARG(map);
 	munmap(map->data, map->len);
+	map->data = NULL;
+	map->len = 0;
 
 	return 0;
 }

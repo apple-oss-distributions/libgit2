@@ -94,40 +94,53 @@ GIT_EXTERN(int) git_repository_discover(
 
 /**
  * Option flags for `git_repository_open_ext`.
- *
- * * GIT_REPOSITORY_OPEN_NO_SEARCH - Only open the repository if it can be
- *   immediately found in the start_path.  Do not walk up from the
- *   start_path looking at parent directories.
- * * GIT_REPOSITORY_OPEN_CROSS_FS - Unless this flag is set, open will not
- *   continue searching across filesystem boundaries (i.e. when `st_dev`
- *   changes from the `stat` system call).  (E.g. Searching in a user's home
- *   directory "/home/user/source/" will not return "/.git/" as the found
- *   repo if "/" is a different filesystem than "/home".)
- * * GIT_REPOSITORY_OPEN_BARE - Open repository as a bare repo regardless
- *   of core.bare config, and defer loading config file for faster setup.
- *   Unlike `git_repository_open_bare`, this can follow gitlinks.
- * * GIT_REPOSITORY_OPEN_NO_DOTGIT - Do not check for a repository by
- *   appending /.git to the start_path; only open the repository if
- *   start_path itself points to the git directory.
- * * GIT_REPOSITORY_OPEN_FROM_ENV - Find and open a git repository,
- *   respecting the environment variables used by the git command-line
- *   tools. If set, `git_repository_open_ext` will ignore the other
- *   flags and the `ceiling_dirs` argument, and will allow a NULL `path`
- *   to use `GIT_DIR` or search from the current directory. The search
- *   for a repository will respect $GIT_CEILING_DIRECTORIES and
- *   $GIT_DISCOVERY_ACROSS_FILESYSTEM.  The opened repository will
- *   respect $GIT_INDEX_FILE, $GIT_NAMESPACE, $GIT_OBJECT_DIRECTORY, and
- *   $GIT_ALTERNATE_OBJECT_DIRECTORIES.  In the future, this flag will
- *   also cause `git_repository_open_ext` to respect $GIT_WORK_TREE and
- *   $GIT_COMMON_DIR; currently, `git_repository_open_ext` with this
- *   flag will error out if either $GIT_WORK_TREE or $GIT_COMMON_DIR is
- *   set.
  */
 typedef enum {
+	/**
+	 * Only open the repository if it can be immediately found in the
+	 * start_path. Do not walk up from the start_path looking at parent
+	 * directories.
+	 */
 	GIT_REPOSITORY_OPEN_NO_SEARCH = (1 << 0),
+
+	/**
+	 * Unless this flag is set, open will not continue searching across
+	 * filesystem boundaries (i.e. when `st_dev` changes from the `stat`
+	 * system call).  For example, searching in a user's home directory at
+	 * "/home/user/source/" will not return "/.git/" as the found repo if
+	 * "/" is a different filesystem than "/home".
+	 */
 	GIT_REPOSITORY_OPEN_CROSS_FS  = (1 << 1),
+
+	/**
+	 * Open repository as a bare repo regardless of core.bare config, and
+	 * defer loading config file for faster setup.
+	 * Unlike `git_repository_open_bare`, this can follow gitlinks.
+	 */
 	GIT_REPOSITORY_OPEN_BARE      = (1 << 2),
+
+	/**
+	 * Do not check for a repository by appending /.git to the start_path;
+	 * only open the repository if start_path itself points to the git
+	 * directory.
+	 */
 	GIT_REPOSITORY_OPEN_NO_DOTGIT = (1 << 3),
+
+	/**
+	 * Find and open a git repository, respecting the environment variables
+	 * used by the git command-line tools.
+	 * If set, `git_repository_open_ext` will ignore the other flags and
+	 * the `ceiling_dirs` argument, and will allow a NULL `path` to use
+	 * `GIT_DIR` or search from the current directory.
+	 * The search for a repository will respect $GIT_CEILING_DIRECTORIES and
+	 * $GIT_DISCOVERY_ACROSS_FILESYSTEM.  The opened repository will
+	 * respect $GIT_INDEX_FILE, $GIT_NAMESPACE, $GIT_OBJECT_DIRECTORY, and
+	 * $GIT_ALTERNATE_OBJECT_DIRECTORIES.
+	 * In the future, this flag will also cause `git_repository_open_ext`
+	 * to respect $GIT_WORK_TREE and $GIT_COMMON_DIR; currently,
+	 * `git_repository_open_ext` with this flag will error out if either
+	 * $GIT_WORK_TREE or $GIT_COMMON_DIR is set.
+	 */
 	GIT_REPOSITORY_OPEN_FROM_ENV  = (1 << 4),
 } git_repository_open_flag_t;
 
@@ -206,36 +219,54 @@ GIT_EXTERN(int) git_repository_init(
  *
  * These flags configure extra behaviors to `git_repository_init_ext`.
  * In every case, the default behavior is the zero value (i.e. flag is
- * not set).  Just OR the flag values together for the `flags` parameter
- * when initializing a new repo.  Details of individual values are:
- *
- * * BARE   - Create a bare repository with no working directory.
- * * NO_REINIT - Return an GIT_EEXISTS error if the repo_path appears to
- *        already be an git repository.
- * * NO_DOTGIT_DIR - Normally a "/.git/" will be appended to the repo
- *        path for non-bare repos (if it is not already there), but
- *        passing this flag prevents that behavior.
- * * MKDIR  - Make the repo_path (and workdir_path) as needed.  Init is
- *        always willing to create the ".git" directory even without this
- *        flag.  This flag tells init to create the trailing component of
- *        the repo and workdir paths as needed.
- * * MKPATH - Recursively make all components of the repo and workdir
- *        paths as necessary.
- * * EXTERNAL_TEMPLATE - libgit2 normally uses internal templates to
- *        initialize a new repo.  This flags enables external templates,
- *        looking the "template_path" from the options if set, or the
- *        `init.templatedir` global config if not, or falling back on
- *        "/usr/share/git-core/templates" if it exists.
- * * GIT_REPOSITORY_INIT_RELATIVE_GITLINK - If an alternate workdir is
- *        specified, use relative paths for the gitdir and core.worktree.
+ * not set). Just OR the flag values together for the `flags` parameter
+ * when initializing a new repo.
  */
 typedef enum {
+	/**
+	 * Create a bare repository with no working directory.
+	 */
 	GIT_REPOSITORY_INIT_BARE              = (1u << 0),
+
+	/**
+	 * Return an GIT_EEXISTS error if the repo_path appears to already be
+	 * an git repository.
+	 */
 	GIT_REPOSITORY_INIT_NO_REINIT         = (1u << 1),
+
+	/**
+	 * Normally a "/.git/" will be appended to the repo path for
+	 * non-bare repos (if it is not already there), but passing this flag
+	 * prevents that behavior.
+	 */
 	GIT_REPOSITORY_INIT_NO_DOTGIT_DIR     = (1u << 2),
+
+	/**
+	 * Make the repo_path (and workdir_path) as needed. Init is always willing
+	 * to create the ".git" directory even without this flag. This flag tells
+	 * init to create the trailing component of the repo and workdir paths
+	 * as needed.
+	 */
 	GIT_REPOSITORY_INIT_MKDIR             = (1u << 3),
+
+	/**
+	 * Recursively make all components of the repo and workdir paths as
+	 * necessary.
+	 */
 	GIT_REPOSITORY_INIT_MKPATH            = (1u << 4),
+
+	/**
+	 * libgit2 normally uses internal templates to initialize a new repo.
+	 * This flags enables external templates, looking the "template_path" from
+	 * the options if set, or the `init.templatedir` global config if not,
+	 * or falling back on "/usr/share/git-core/templates" if it exists.
+	 */
 	GIT_REPOSITORY_INIT_EXTERNAL_TEMPLATE = (1u << 5),
+
+	/**
+	 * If an alternate workdir is specified, use relative paths for the gitdir
+	 * and core.worktree.
+	 */
 	GIT_REPOSITORY_INIT_RELATIVE_GITLINK  = (1u << 6),
 } git_repository_init_flag_t;
 
@@ -244,17 +275,23 @@ typedef enum {
  *
  * Set the mode field of the `git_repository_init_options` structure
  * either to the custom mode that you would like, or to one of the
- * following modes:
- *
- * * SHARED_UMASK - Use permissions configured by umask - the default.
- * * SHARED_GROUP - Use "--shared=group" behavior, chmod'ing the new repo
- *        to be group writable and "g+sx" for sticky group assignment.
- * * SHARED_ALL - Use "--shared=all" behavior, adding world readability.
- * * Anything else - Set to custom value.
+ * defined modes.
  */
 typedef enum {
+	/**
+	 * Use permissions configured by umask - the default.
+	 */
 	GIT_REPOSITORY_INIT_SHARED_UMASK = 0,
+
+	/**
+	 * Use "--shared=group" behavior, chmod'ing the new repo to be group
+	 * writable and "g+sx" for sticky group assignment.
+	 */
 	GIT_REPOSITORY_INIT_SHARED_GROUP = 0002775,
+
+	/**
+	 * Use "--shared=all" behavior, adding world readability.
+	 */
 	GIT_REPOSITORY_INIT_SHARED_ALL   = 0002777,
 } git_repository_init_mode_t;
 
@@ -262,38 +299,57 @@ typedef enum {
  * Extended options structure for `git_repository_init_ext`.
  *
  * This contains extra options for `git_repository_init_ext` that enable
- * additional initialization features.  The fields are:
- *
- * * flags - Combination of GIT_REPOSITORY_INIT flags above.
- * * mode  - Set to one of the standard GIT_REPOSITORY_INIT_SHARED_...
- *        constants above, or to a custom value that you would like.
- * * workdir_path - The path to the working dir or NULL for default (i.e.
- *        repo_path parent on non-bare repos).  IF THIS IS RELATIVE PATH,
- *        IT WILL BE EVALUATED RELATIVE TO THE REPO_PATH.  If this is not
- *        the "natural" working directory, a .git gitlink file will be
- *        created here linking to the repo_path.
- * * description - If set, this will be used to initialize the "description"
- *        file in the repository, instead of using the template content.
- * * template_path - When GIT_REPOSITORY_INIT_EXTERNAL_TEMPLATE is set,
- *        this contains the path to use for the template directory.  If
- *        this is NULL, the config or default directory options will be
- *        used instead.
- * * initial_head - The name of the head to point HEAD at.  If NULL, then
- *        this will be treated as "master" and the HEAD ref will be set
- *        to "refs/heads/master".  If this begins with "refs/" it will be
- *        used verbatim; otherwise "refs/heads/" will be prefixed.
- * * origin_url - If this is non-NULL, then after the rest of the
- *        repository initialization is completed, an "origin" remote
- *        will be added pointing to this URL.
+ * additional initialization features.
  */
 typedef struct {
 	unsigned int version;
+
+	/**
+	 * Combination of GIT_REPOSITORY_INIT flags above.
+	 */
 	uint32_t    flags;
+
+	/**
+	 * Set to one of the standard GIT_REPOSITORY_INIT_SHARED_... constants
+	 * above, or to a custom value that you would like.
+	 */
 	uint32_t    mode;
+
+	/**
+	 * The path to the working dir or NULL for default (i.e. repo_path parent
+	 * on non-bare repos). IF THIS IS RELATIVE PATH, IT WILL BE EVALUATED
+	 * RELATIVE TO THE REPO_PATH. If this is not the "natural" working
+	 * directory, a .git gitlink file will be created here linking to the
+	 * repo_path.
+	 */
 	const char *workdir_path;
+
+	/**
+	 * If set, this will be used to initialize the "description" file in the
+	 * repository, instead of using the template content.
+	 */
 	const char *description;
+
+	/**
+	 * When GIT_REPOSITORY_INIT_EXTERNAL_TEMPLATE is set, this contains
+	 * the path to use for the template directory. If this is NULL, the config
+	 * or default directory options will be used instead.
+	 */
 	const char *template_path;
+
+	/**
+	 * The name of the head to point HEAD at. If NULL, then this will be
+	 * treated as "master" and the HEAD ref will be set to "refs/heads/master".
+	 * If this begins with "refs/" it will be used verbatim;
+	 * otherwise "refs/heads/" will be prefixed.
+	 */
 	const char *initial_head;
+
+	/**
+	 * If this is non-NULL, then after the rest of the repository
+	 * initialization is completed, an "origin" remote will be added
+	 * pointing to this URL.
+	 */
 	const char *origin_url;
 } git_repository_init_options;
 
@@ -301,14 +357,16 @@ typedef struct {
 #define GIT_REPOSITORY_INIT_OPTIONS_INIT {GIT_REPOSITORY_INIT_OPTIONS_VERSION}
 
 /**
- * Initializes a `git_repository_init_options` with default values. Equivalent
- * to creating an instance with GIT_REPOSITORY_INIT_OPTIONS_INIT.
+ * Initialize git_repository_init_options structure
  *
- * @param opts the `git_repository_init_options` struct to initialize
- * @param version Version of struct; pass `GIT_REPOSITORY_INIT_OPTIONS_VERSION`
+ * Initializes a `git_repository_init_options` with default values. Equivalent to
+ * creating an instance with `GIT_REPOSITORY_INIT_OPTIONS_INIT`.
+ *
+ * @param opts The `git_repository_init_options` struct to initialize.
+ * @param version The struct version; pass `GIT_REPOSITORY_INIT_OPTIONS_VERSION`.
  * @return Zero on success; -1 on failure.
  */
-GIT_EXTERN(int) git_repository_init_init_options(
+GIT_EXTERN(int) git_repository_init_options_init(
 	git_repository_init_options *opts,
 	unsigned int version);
 
@@ -368,7 +426,7 @@ GIT_EXTERN(int) git_repository_head_for_worktree(git_reference **out, git_reposi
  */
 GIT_EXTERN(int) git_repository_head_detached(git_repository *repo);
 
-/*
+/**
  * Check if a worktree's HEAD is detached
  *
  * A worktree's HEAD is detached when it points directly to a
@@ -423,7 +481,8 @@ typedef enum {
 	GIT_REPOSITORY_ITEM_HOOKS,
 	GIT_REPOSITORY_ITEM_LOGS,
 	GIT_REPOSITORY_ITEM_MODULES,
-	GIT_REPOSITORY_ITEM_WORKTREES
+	GIT_REPOSITORY_ITEM_WORKTREES,
+	GIT_REPOSITORY_ITEM__LAST
 } git_repository_item_t;
 
 /**
@@ -465,10 +524,11 @@ GIT_EXTERN(const char *) git_repository_path(const git_repository *repo);
 GIT_EXTERN(const char *) git_repository_workdir(const git_repository *repo);
 
 /**
- * Get the path of the shared common directory for this repository
- *
- * If the repository is bare is not a worktree, the git directory
- * path is returned.
+ * Get the path of the shared common directory for this repository.
+ * 
+ * If the repository is bare, it is the root directory for the repository.
+ * If the repository is a worktree, it is the parent repo's gitdir.
+ * Otherwise, it is the gitdir.
  *
  * @param repo A repository object
  * @return the path to the common dir
@@ -625,7 +685,19 @@ GIT_EXTERN(int) git_repository_message_remove(git_repository *repo);
  */
 GIT_EXTERN(int) git_repository_state_cleanup(git_repository *repo);
 
-typedef int (*git_repository_fetchhead_foreach_cb)(const char *ref_name,
+/**
+ * Callback used to iterate over each FETCH_HEAD entry
+ *
+ * @see git_repository_fetchhead_foreach
+ *
+ * @param ref_name The reference name
+ * @param remote_url The remote URL
+ * @param oid The reference target OID
+ * @param is_merge Was the reference the result of a merge
+ * @param payload Payload passed to git_repository_fetchhead_foreach
+ * @return non-zero to terminate the iteration
+ */
+typedef int GIT_CALLBACK(git_repository_fetchhead_foreach_cb)(const char *ref_name,
 	const char *remote_url,
 	const git_oid *oid,
 	unsigned int is_merge,
@@ -647,7 +719,16 @@ GIT_EXTERN(int) git_repository_fetchhead_foreach(
 	git_repository_fetchhead_foreach_cb callback,
 	void *payload);
 
-typedef int (*git_repository_mergehead_foreach_cb)(const git_oid *oid,
+/**
+ * Callback used to iterate over each MERGE_HEAD entry
+ *
+ * @see git_repository_mergehead_foreach
+ *
+ * @param oid The merge OID
+ * @param payload Payload passed to git_repository_mergehead_foreach
+ * @return non-zero to terminate the iteration
+ */
+typedef int GIT_CALLBACK(git_repository_mergehead_foreach_cb)(const git_oid *oid,
 	void *payload);
 
 /**
@@ -681,20 +762,22 @@ GIT_EXTERN(int) git_repository_mergehead_foreach(
  *
  * @param out Output value of calculated SHA
  * @param repo Repository pointer
- * @param path Path to file on disk whose contents should be hashed. If the
- *             repository is not NULL, this can be a relative path.
- * @param type The object type to hash as (e.g. GIT_OBJ_BLOB)
+ * @param path Path to file on disk whose contents should be hashed.  This
+ *             may be an absolute path or a relative path, in which case it
+ *             will be treated as a path within the working directory.
+ * @param type The object type to hash as (e.g. GIT_OBJECT_BLOB)
  * @param as_path The path to use to look up filtering rules. If this is
- *             NULL, then the `path` parameter will be used instead. If
- *             this is passed as the empty string, then no filters will be
- *             applied when calculating the hash.
+ *             an empty string then no filters will be applied when
+ *             calculating the hash. If this is `NULL` and the `path`
+ *             parameter is a file within the repository's working
+ *             directory, then the `path` will be used.
  * @return 0 on success, or an error code
  */
 GIT_EXTERN(int) git_repository_hashfile(
 	git_oid *out,
 	git_repository *repo,
 	const char *path,
-	git_otype type,
+	git_object_t type,
 	const char *as_path);
 
 /**
@@ -716,8 +799,8 @@ GIT_EXTERN(int) git_repository_hashfile(
  * @return 0 on success, or an error code
  */
 GIT_EXTERN(int) git_repository_set_head(
-	git_repository* repo,
-	const char* refname);
+	git_repository *repo,
+	const char *refname);
 
 /**
  * Make the repository HEAD directly point to the Commit.
@@ -736,8 +819,8 @@ GIT_EXTERN(int) git_repository_set_head(
  * @return 0 on success, or an error code
  */
 GIT_EXTERN(int) git_repository_set_head_detached(
-	git_repository* repo,
-	const git_oid* commitish);
+	git_repository *repo,
+	const git_oid *commitish);
 
 /**
  * Make the repository HEAD directly point to the Commit.
@@ -773,7 +856,7 @@ GIT_EXTERN(int) git_repository_set_head_detached_from_annotated(
  * branch or an error code
  */
 GIT_EXTERN(int) git_repository_detach_head(
-	git_repository* repo);
+	git_repository *repo);
 
 /**
  * Repository state

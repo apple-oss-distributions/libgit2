@@ -1,5 +1,5 @@
 #include "clar_libgit2.h"
-#include "fileops.h"
+#include "futils.h"
 
 static git_repository *g_repo;
 
@@ -35,5 +35,5 @@ void test_repo_shallow__clears_errors(void)
 {
 	g_repo = cl_git_sandbox_init("testrepo.git");
 	cl_assert_equal_i(0, git_repository_is_shallow(g_repo));
-	cl_assert_equal_p(NULL, giterr_last());
+	cl_assert_equal_p(NULL, git_error_last());
 }
