@@ -3,8 +3,22 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 46;
+	objectVersion = 54;
 	objects = {
+
+/* Begin PBXAggregateTarget section */
+		1A1217A628E4F17700FBD206 /* libgit2-aggregate */ = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = 1A1217A728E4F17700FBD206 /* Build configuration list for PBXAggregateTarget "libgit2-aggregate" */;
+			buildPhases = (
+			);
+			dependencies = (
+				1A1217B328E4F3E300FBD206 /* PBXTargetDependency */,
+			);
+			name = "libgit2-aggregate";
+			productName = "libgit2-aggregate";
+		};
+/* End PBXAggregateTarget section */
 
 /* Begin PBXBuildFile section */
 		911417C82799E99100A0AC56 /* failalloc.c in Sources */ = {isa = PBXBuildFile; fileRef = 911417962799E99000A0AC56 /* failalloc.c */; };
@@ -182,6 +196,16 @@
 		B7F9A4841F3D079E00DC8D23 /* oidmap.c in Sources */ = {isa = PBXBuildFile; fileRef = B78FA7E91F031C56000EC4EF /* oidmap.c */; };
 		B7F9A4851F3D07E900DC8D23 /* worktree.c in Sources */ = {isa = PBXBuildFile; fileRef = B78FA7EA1F031C69000EC4EF /* worktree.c */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		1A1217B228E4F3E300FBD206 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B70C57C1187E3E450077112E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B70C57C8187E3E450077112E;
+			remoteInfo = git2;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		911417962799E99000A0AC56 /* failalloc.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; name = failalloc.c; path = libgit2/src/allocators/failalloc.c; sourceTree = "<group>"; };
@@ -646,7 +670,15 @@
 		B70C57C1187E3E450077112E /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
+				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 0510;
+				TargetAttributes = {
+					1A1217A628E4F17700FBD206 = {
+						CreatedOnToolsVersion = 14.1;
+						DevelopmentTeam = ND2GJ3QDLH;
+						ProvisioningStyle = Automatic;
+					};
+				};
 			};
 			buildConfigurationList = B70C57C4187E3E450077112E /* Build configuration list for PBXProject "libgit2" */;
 			compatibilityVersion = "Xcode 3.2";
@@ -662,6 +694,7 @@
 			projectRoot = "";
 			targets = (
 				B70C57C8187E3E450077112E /* git2 */,
+				1A1217A628E4F17700FBD206 /* libgit2-aggregate */,
 			);
 		};
 /* End PBXProject section */
@@ -841,7 +874,36 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		1A1217B328E4F3E300FBD206 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B70C57C8187E3E450077112E /* git2 */;
+			targetProxy = 1A1217B228E4F3E300FBD206 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		1A1217B028E4F33600FBD206 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COPY_PHASE_STRIP = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				PRODUCT_BUNDLE_IDENTIFIER = com.apple.dt.libgit2;
+				PRODUCT_NAME = "libgit2-aggregate";
+			};
+			name = Release;
+		};
+		1A1217B128E4F33600FBD206 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COPY_PHASE_STRIP = NO;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.apple.dt.libgit2;
+				PRODUCT_NAME = "libgit2-aggregate";
+			};
+			name = Debug;
+		};
 		91BB7D5722C2875900B2509D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -852,9 +914,10 @@
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = "DEBUG=1";
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_INHIBIT_ALL_WARNINGS = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				INSTALL_PATH = "$(DEVELOPER_INSTALL_DIR)/usr/lib";
-				MACOSX_DEPLOYMENT_TARGET = 10.9;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				SDKROOT = macosx;
 			};
 			name = Debug;
@@ -937,9 +1000,10 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				GCC_C_LANGUAGE_STANDARD = gnu99;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_INHIBIT_ALL_WARNINGS = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				INSTALL_PATH = "$(DEVELOPER_INSTALL_DIR)/usr/lib";
-				MACOSX_DEPLOYMENT_TARGET = 10.9;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
 				SDKROOT = macosx;
 			};
 			name = Release;
@@ -1016,6 +1080,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		1A1217A728E4F17700FBD206 /* Build configuration list for PBXAggregateTarget "libgit2-aggregate" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1A1217B028E4F33600FBD206 /* Release */,
+				1A1217B128E4F33600FBD206 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		B70C57C4187E3E450077112E /* Build configuration list for PBXProject "libgit2" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
