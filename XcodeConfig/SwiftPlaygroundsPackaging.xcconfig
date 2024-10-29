@@ -1,0 +1,12 @@
+//
+//  SwiftPlaygroundsPackaging.xcconfig
+//  libgit2
+//
+//  Copyright © 2024 Apple Inc. All rights reserved.
+//
+
+GIT2_SwiftPlaygrounds_DYLIB_INSTALL_PATH = $(SWIFT_PLAYGROUNDS_EXTRAS_INSTALL_DIR)/usr/lib
+GIT2_SwiftPlaygrounds_DYLIB_PUBLIC_HEADERS_FOLDER_PATH = $(SWIFT_PLAYGROUNDS_EXTRAS_INSTALL_DIR)/usr/local/include/git2-1
+
+GIT2_SwiftPlaygrounds_SUPPORTS_GSS = NO
+GIT2_SwiftPlaygrounds_SUPPORTS_SSH = NO

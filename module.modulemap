@@ -1,0 +1,5 @@
+module git2 {
+    header "git2.h"
+
+    export *
+}

@@ -28,7 +28,13 @@ GIT_BEGIN_DECL
  * @param objects_dir the path to a git objects directory.
  * @return Zero on success; -1 on failure.
  */
-GIT_EXTERN(int) git_commit_graph_open(git_commit_graph **cgraph_out, const char *objects_dir);
+GIT_EXTERN(int) git_commit_graph_open(
+	git_commit_graph **cgraph_out,
+	const char *objects_dir
+#ifdef GIT_EXPERIMENTAL_SHA256
+	, git_oid_t oid_type
+#endif
+	);
 
 /**
  * Frees commit-graph data. This should only be called when memory allocated
@@ -50,7 +56,11 @@ GIT_EXTERN(void) git_commit_graph_free(git_commit_graph *cgraph);
  */
 GIT_EXTERN(int) git_commit_graph_writer_new(
 		git_commit_graph_writer **out,
-		const char *objects_info_dir);
+		const char *objects_info_dir
+#ifdef GIT_EXPERIMENTAL_SHA256
+	, git_oid_t oid_type
+#endif
+		);
 
 /**
  * Free the commit-graph writer and its resources.
@@ -94,7 +104,7 @@ typedef enum {
 	 * Do not split commit-graph files. The other split strategy-related option
 	 * fields are ignored.
 	 */
-	GIT_COMMIT_GRAPH_SPLIT_STRATEGY_SINGLE_FILE = 0,
+	GIT_COMMIT_GRAPH_SPLIT_STRATEGY_SINGLE_FILE = 0
 } git_commit_graph_split_strategy_t;
 
 /**

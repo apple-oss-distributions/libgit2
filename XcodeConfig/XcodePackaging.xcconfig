@@ -1,0 +1,12 @@
+//
+//  XcodePackaging.xcconfig
+//  libgit2
+//
+//  Copyright © 2024 Apple Inc. All rights reserved.
+//
+
+GIT2_Xcode_DYLIB_INSTALL_PATH = $(DEVELOPER_INSTALL_DIR)/usr/lib
+GIT2_Xcode_DYLIB_PUBLIC_HEADERS_FOLDER_PATH = $(DEVELOPER_INSTALL_DIR)/usr/local/include/git2-1
+
+GIT2_Xcode_SUPPORTS_GSS = YES
+GIT2_Xcode_SUPPORTS_SSH = YES

@@ -56,9 +56,19 @@ GIT_EXTERN(int) git_repository_open_from_worktree(git_repository **out, git_work
  *
  * @param out pointer to the repo
  * @param odb the object database to wrap
+ * @param oid_type the oid type of the object database
  * @return 0 or an error code
  */
-GIT_EXTERN(int) git_repository_wrap_odb(git_repository **out, git_odb *odb);
+#ifdef GIT_EXPERIMENTAL_SHA256
+GIT_EXTERN(int) git_repository_wrap_odb(
+	git_repository **out,
+	git_odb *odb,
+	git_oid_t oid_type);
+#else
+GIT_EXTERN(int) git_repository_wrap_odb(
+	git_repository **out,
+	git_odb *odb);
+#endif
 
 /**
  * Look for a git repository and copy its path in the given buffer.
@@ -141,7 +151,7 @@ typedef enum {
 	 * `git_repository_open_ext` with this flag will error out if either
 	 * $GIT_WORK_TREE or $GIT_COMMON_DIR is set.
 	 */
-	GIT_REPOSITORY_OPEN_FROM_ENV  = (1 << 4),
+	GIT_REPOSITORY_OPEN_FROM_ENV  = (1 << 4)
 } git_repository_open_flag_t;
 
 /**
@@ -267,7 +277,7 @@ typedef enum {
 	 * If an alternate workdir is specified, use relative paths for the gitdir
 	 * and core.worktree.
 	 */
-	GIT_REPOSITORY_INIT_RELATIVE_GITLINK  = (1u << 6),
+	GIT_REPOSITORY_INIT_RELATIVE_GITLINK  = (1u << 6)
 } git_repository_init_flag_t;
 
 /**
@@ -292,7 +302,7 @@ typedef enum {
 	/**
 	 * Use "--shared=all" behavior, adding world readability.
 	 */
-	GIT_REPOSITORY_INIT_SHARED_ALL   = 0002777,
+	GIT_REPOSITORY_INIT_SHARED_ALL   = 0002777
 } git_repository_init_mode_t;
 
 /**
@@ -351,6 +361,15 @@ typedef struct {
 	 * pointing to this URL.
 	 */
 	const char *origin_url;
+
+#ifdef GIT_EXPERIMENTAL_SHA256
+	/**
+	 *
+	 * Type of object IDs to use for this repository, or 0 for
+	 * default (currently SHA1).
+	 */
+	git_oid_t oid_type;
+#endif
 } git_repository_init_options;
 
 #define GIT_REPOSITORY_INIT_OPTIONS_VERSION 1
@@ -456,7 +475,9 @@ GIT_EXTERN(int) git_repository_head_unborn(git_repository *repo);
  * Check if a repository is empty
  *
  * An empty repository has just been initialized and contains no references
- * apart from HEAD, which must be pointing to the unborn master branch.
+ * apart from HEAD, which must be pointing to the unborn master branch,
+ * or the branch specified for the repository in the `init.defaultBranch`
+ * configuration variable.
  *
  * @param repo Repo to test
  * @return 1 if the repository is empty, 0 if it isn't, error code
@@ -525,7 +546,7 @@ GIT_EXTERN(const char *) git_repository_workdir(const git_repository *repo);
 
 /**
  * Get the path of the shared common directory for this repository.
- * 
+ *
  * If the repository is bare, it is the root directory for the repository.
  * If the repository is a worktree, it is the parent repo's gitdir.
  * Otherwise, it is the gitdir.
@@ -673,6 +694,9 @@ GIT_EXTERN(int) git_repository_message(git_buf *out, git_repository *repo);
  * Remove git's prepared message.
  *
  * Remove the message that `git_repository_message` retrieves.
+ *
+ * @param repo Repository to remove prepared message from.
+ * @return 0 or an error code.
  */
 GIT_EXTERN(int) git_repository_message_remove(git_repository *repo);
 
@@ -808,19 +832,19 @@ GIT_EXTERN(int) git_repository_set_head(
  * If the provided committish cannot be found in the repository, the HEAD
  * is unaltered and GIT_ENOTFOUND is returned.
  *
- * If the provided commitish cannot be peeled into a commit, the HEAD
+ * If the provided committish cannot be peeled into a commit, the HEAD
  * is unaltered and -1 is returned.
  *
  * Otherwise, the HEAD will eventually be detached and will directly point to
  * the peeled Commit.
  *
  * @param repo Repository pointer
- * @param commitish Object id of the Commit the HEAD should point to
+ * @param committish Object id of the Commit the HEAD should point to
  * @return 0 on success, or an error code
  */
 GIT_EXTERN(int) git_repository_set_head_detached(
 	git_repository *repo,
-	const git_oid *commitish);
+	const git_oid *committish);
 
 /**
  * Make the repository HEAD directly point to the Commit.
@@ -836,7 +860,7 @@ GIT_EXTERN(int) git_repository_set_head_detached(
  */
 GIT_EXTERN(int) git_repository_set_head_detached_from_annotated(
 	git_repository *repo,
-	const git_annotated_commit *commitish);
+	const git_annotated_commit *committish);
 
 /**
  * Detach the HEAD.
@@ -846,7 +870,7 @@ GIT_EXTERN(int) git_repository_set_head_detached_from_annotated(
  * If the HEAD is already detached and points to a Tag, the HEAD is
  * updated into making it point to the peeled Commit, and 0 is returned.
  *
- * If the HEAD is already detached and points to a non commitish, the HEAD is
+ * If the HEAD is already detached and points to a non committish, the HEAD is
  * unaltered, and -1 is returned.
  *
  * Otherwise, the HEAD will be detached and point to the peeled Commit.
@@ -876,7 +900,7 @@ typedef enum {
 	GIT_REPOSITORY_STATE_REBASE_INTERACTIVE,
 	GIT_REPOSITORY_STATE_REBASE_MERGE,
 	GIT_REPOSITORY_STATE_APPLY_MAILBOX,
-	GIT_REPOSITORY_STATE_APPLY_MAILBOX_OR_REBASE,
+	GIT_REPOSITORY_STATE_APPLY_MAILBOX_OR_REBASE
 } git_repository_state_t;
 
 /**
@@ -928,6 +952,7 @@ GIT_EXTERN(int) git_repository_is_shallow(git_repository *repo);
  * @param name where to store the pointer to the name
  * @param email where to store the pointer to the email
  * @param repo the repository
+ * @return 0 or an error code
  */
 GIT_EXTERN(int) git_repository_ident(const char **name, const char **email, const git_repository *repo);
 
@@ -941,8 +966,17 @@ GIT_EXTERN(int) git_repository_ident(const char **name, const char **email, cons
  * @param repo the repository to configure
  * @param name the name to use for the reflog entries
  * @param email the email to use for the reflog entries
+ * @return 0 or an error code.
  */
 GIT_EXTERN(int) git_repository_set_ident(git_repository *repo, const char *name, const char *email);
+
+/**
+ * Gets the object type used by this repository.
+ *
+ * @param repo the repository
+ * @return the object id type
+ */
+GIT_EXTERN(git_oid_t) git_repository_oid_type(git_repository *repo);
 
 /** @} */
 GIT_END_DECL
